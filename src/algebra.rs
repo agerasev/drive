@@ -1,6 +1,9 @@
-use derive_more::derive::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use derive_more::derive::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use macroquad::math::{Mat2, Vec2, Vec3};
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use std::{
+    f32::consts::PI,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+};
 
 pub trait Linear:
     Default
@@ -35,6 +38,7 @@ impl<T> Linear for T where
     PartialOrd,
     Default,
     Debug,
+    Neg,
     Add,
     AddAssign,
     Sub,
@@ -52,6 +56,7 @@ pub struct Angular2(pub f32);
     PartialEq,
     Default,
     Debug,
+    Neg,
     Add,
     AddAssign,
     Sub,
@@ -80,6 +85,15 @@ impl Default for Rot3 {
 */
 
 impl Rot2 {
+    /// Angle in radians `0.0..(2.0 * PI)`
+    pub fn angle(self) -> f32 {
+        self.0
+    }
+    /// Angle in degrees `0.0..360.0`
+    pub fn angle_degrees(self) -> f32 {
+        180.0 / PI * self.angle()
+    }
+
     pub fn matrix(self) -> Mat2 {
         Mat2::from_angle(self.0)
     }
@@ -108,5 +122,11 @@ impl Mul<f32> for Rot2 {
 impl Angular2 {
     pub fn rot(self) -> Rot2 {
         Rot2(self.0)
+    }
+    pub fn vel_at(self, r: Vec2) -> Vec2 {
+        self.0 * r.perp()
+    }
+    pub fn torque(r: Vec2, f: Vec2) -> Self {
+        Self(r.perp_dot(f))
     }
 }
