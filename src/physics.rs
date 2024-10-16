@@ -32,13 +32,13 @@ impl<P: Parameter> Var<P> {
         &mut self.value.0
     }
 
-    pub fn add_derivative(&mut self, d: P::Derivative) {
+    pub fn add_deriv(&mut self, d: P::Derivative) {
         self.deriv.0 += d;
     }
-    pub fn derivative(&self) -> &P::Derivative {
+    pub fn deriv(&self) -> &P::Derivative {
         &self.deriv.0
     }
-    pub fn derivative_mut(&mut self) -> &mut P::Derivative {
+    pub fn deriv_mut(&mut self) -> &mut P::Derivative {
         &mut self.deriv.0
     }
 }
@@ -60,8 +60,8 @@ pub trait Visitor {
 }
 
 pub trait System {
-    fn compute_derivatives(&mut self);
-    fn visit_parameters<V: Visitor>(&mut self, visitor: &mut V);
+    fn compute_derivs(&mut self);
+    fn visit_vars<V: Visitor>(&mut self, visitor: &mut V);
 }
 
 impl Parameter for f32 {
@@ -143,8 +143,8 @@ impl Visitor for Rk4Step {
 impl Solver {
     pub fn solve_step<S: System>(&self, system: &mut S, dt: f32) {
         for stage in 0..4 {
-            system.compute_derivatives();
-            system.visit_parameters(&mut Rk4Step { stage, dt });
+            system.compute_derivs();
+            system.visit_vars(&mut Rk4Step { stage, dt });
         }
     }
 }
