@@ -9,7 +9,7 @@ use macroquad::{
         is_key_down, is_key_pressed, is_mouse_button_down, mouse_delta_position, mouse_wheel,
         set_cursor_grab, show_mouse, KeyCode, MouseButton,
     },
-    math::{EulerRot, Quat, Rect, Vec2, Vec3},
+    math::{EulerRot, Mat3, Quat, Rect, Vec2, Vec3},
     miniquad::window::screen_size,
     models::{draw_mesh, Mesh},
     texture::{load_texture, set_default_filter_mode, FilterMode},
@@ -22,31 +22,50 @@ fn de_vec3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec3, D::Error>
     Ok(Vec3::from(<[f32; 3]>::deserialize(deserializer)?))
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct WheelConfig {
-    /// Position when no force applied
-    #[serde(deserialize_with = "de_vec3")]
-    position: Vec3,
-    radius: f32,
-    width: f32,
-    /// Spring linear and quadratic hardness (N/m, N/m^2)
-    hardness: (f32, f32),
-    /// Suspension (N/(m/s))
-    suspension: f32,
+fn de_mat3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Mat3, D::Error> {
+    Ok(Mat3::from_cols_array_2d(&<[[f32; 3]; 3]>::deserialize(
+        deserializer,
+    )?))
+}
+
+fn de_array4_vec3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[Vec3; 4], D::Error> {
+    Ok(<[[f32; 3]; 4]>::deserialize(deserializer)?.map(Vec3::from))
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct VehicleConfig {
-    /// Mass in kg
-    mass: f32,
-
-    /// Wheels in order:
+struct WheelsConfig {
+    /// Positions of equilibrium (i.e. when no force applied)
+    ///
+    /// Order of wheels:
     ///
     /// + front-left
     /// + front-right
     /// + rear-right
     /// + rear-left
-    wheels: [WheelConfig; 4],
+    #[serde(deserialize_with = "de_array4_vec3")]
+    positions: [Vec3; 4],
+
+    radius: f32,
+    width: f32,
+    /// Mass of wheel (kg)
+    mass: f32,
+    /// Moment of inertia around wheel axis (kg*m^2)
+    moment_of_inertia: f32,
+    /// Spring linear and quadratic hardness (N/m, N/m^2)
+    hardness: (f32, f32),
+    /// Suspension liquid friction (N/(m/s))
+    suspension: f32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct VehicleConfig {
+    /// Mass (kg)
+    mass: f32,
+    /// Moment of inertia tensor (kg*m^2)
+    #[serde(deserialize_with = "de_mat3")]
+    moment_of_inertia: Mat3,
+
+    wheels: WheelsConfig,
 }
 
 fn grab(state: bool) {
@@ -60,7 +79,7 @@ pub async fn main() -> Result<(), Error> {
         texture: Some(load_texture("l200.png").await?),
         ..load_model("l200.obj").await?
     };
-    let config = serde_json::from_slice(&load_file("l200.json").await?)?;
+    let config: VehicleConfig = serde_json::from_slice(&load_file("l200.json").await?)?;
 
     let mut grabbed = true;
     grab(grabbed);
