@@ -2,21 +2,26 @@ use crate::model::load_model;
 use anyhow::Error;
 use defer::defer;
 use macroquad::{
-    camera::{set_camera, set_default_camera, Camera3D},
+    camera::{set_camera, set_default_camera, Camera, Camera3D},
     color,
     file::load_file,
     input::{
         is_key_down, is_key_pressed, is_mouse_button_down, mouse_delta_position, mouse_wheel,
         set_cursor_grab, show_mouse, KeyCode, MouseButton,
     },
-    math::{EulerRot, Mat3, Quat, Rect, Vec2, Vec3},
+    math::{Affine3A, EulerRot, Mat3, Mat4, Quat, Rect, Vec2, Vec3, Vec4},
     miniquad::window::screen_size,
     models::{draw_mesh, Mesh},
-    texture::{load_texture, set_default_filter_mode, FilterMode},
+    texture::{load_texture, set_default_filter_mode, FilterMode, RenderPass, Texture2D},
+    ui::Vertex,
     window::{clear_background, next_frame},
 };
 use serde::{Deserialize, Deserializer};
 use std::{f32::consts::PI, future::Future, pin::Pin};
+
+fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
+    Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
+}
 
 fn de_vec3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec3, D::Error> {
     Ok(Vec3::from(<[f32; 3]>::deserialize(deserializer)?))
@@ -28,35 +33,6 @@ fn de_mat3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Mat3, D::Error>
     )?))
 }
 
-fn de_array4_vec3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[Vec3; 4], D::Error> {
-    Ok(<[[f32; 3]; 4]>::deserialize(deserializer)?.map(Vec3::from))
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct WheelsConfig {
-    /// Positions of equilibrium (i.e. when no force applied)
-    ///
-    /// Order of wheels:
-    ///
-    /// + front-left
-    /// + front-right
-    /// + rear-right
-    /// + rear-left
-    #[serde(deserialize_with = "de_array4_vec3")]
-    positions: [Vec3; 4],
-
-    radius: f32,
-    width: f32,
-    /// Mass of wheel (kg)
-    mass: f32,
-    /// Moment of inertia around wheel axis (kg*m^2)
-    moment_of_inertia: f32,
-    /// Spring linear and quadratic hardness (N/m, N/m^2)
-    hardness: (f32, f32),
-    /// Suspension liquid friction (N/(m/s))
-    suspension: f32,
-}
-
 #[derive(Clone, Debug, Deserialize)]
 struct VehicleConfig {
     /// Mass (kg)
@@ -65,7 +41,169 @@ struct VehicleConfig {
     #[serde(deserialize_with = "de_mat3")]
     moment_of_inertia: Mat3,
 
-    wheels: WheelsConfig,
+    wheel_common: WheelConfig,
+    wheels: [WheelInstanceConfig; 4],
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct WheelConfig {
+    radius: f32,
+    width: f32,
+    /// Mass of wheel (kg)
+    mass: f32,
+    /// Moment of inertia around wheel axis (kg*m^2)
+    moment_of_inertia: f32,
+
+    /// Spring linear and quadratic hardness (N/m, N/m^2)
+    hardness: (f32, f32),
+    /// Liquid friction of shock absorber (N/(m/s))
+    damping: f32,
+
+    #[serde(deserialize_with = "de_vec2")]
+    texture_center: Vec2,
+    texture_radius: f32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct WheelInstanceConfig {
+    #[serde(deserialize_with = "de_vec3")]
+    position: Vec3,
+}
+
+fn make_wheel_model(n_vertices: usize, tex_pos: Vec2, tex_rad: f32, texture: Texture2D) -> Mesh {
+    let uv_pos = tex_pos / texture.size();
+    let uv_rad = Vec2::splat(tex_rad) / texture.size();
+    Mesh {
+        vertices: [1.0, -1.0]
+            .into_iter()
+            .map(|side| Vertex {
+                position: Vec3::new(0.0, 0.0, 0.5 * side),
+                uv: uv_pos,
+                normal: Vec4::new(0.0, 0.0, side, 1.0),
+                color: [255; 4],
+            })
+            .chain((0..n_vertices).flat_map(|i| {
+                let phi = 2.0 * PI * (i as f32 / n_vertices as f32);
+                let offset = Vec2::from_angle(phi);
+                [
+                    Vertex {
+                        position: Vec3::from((offset, 0.5)),
+                        uv: uv_pos + uv_rad * offset,
+                        normal: Vec4::new(0.0, 0.0, 1.0, 1.0),
+                        color: [255; 4],
+                    },
+                    Vertex {
+                        position: Vec3::from((offset, -0.5)),
+                        uv: uv_pos + uv_rad * offset,
+                        normal: Vec4::new(0.0, 0.0, -1.0, 1.0),
+                        color: [255; 4],
+                    },
+                ]
+            }))
+            .collect(),
+        indices: (0..n_vertices)
+            .flat_map(|i| {
+                [0].into_iter()
+                    .chain(
+                        [0, 2, 0, 2, 1, 2, 3, 1, 3, 1]
+                            .map(|j| (((2 * i + j) % (2 * n_vertices)) + 2) as u16),
+                    )
+                    .chain([1])
+            })
+            .collect(),
+        texture: Some(texture),
+    }
+}
+
+struct Vehicle {
+    config: VehicleConfig,
+
+    model: Mesh,
+    wheel_model: Mesh,
+}
+
+impl Vehicle {
+    fn new(config: VehicleConfig, mut model: Mesh, texture: Texture2D) -> Self {
+        model.texture = Some(texture.clone());
+        let wheel_model = make_wheel_model(
+            64,
+            config.wheel_common.texture_center,
+            config.wheel_common.texture_radius,
+            texture,
+        );
+        Self {
+            config,
+            model,
+            wheel_model,
+        }
+    }
+
+    fn draw(&self, stack: &TransformStack) {
+        draw_mesh(&self.model);
+
+        let wheel_common = &self.config.wheel_common;
+        for wheel in &self.config.wheels {
+            let _transform = stack.push(Affine3A::from_scale_rotation_translation(
+                Vec3::new(wheel_common.radius, wheel_common.radius, wheel_common.width),
+                Quat::from_rotation_y(0.5 * PI),
+                wheel.position,
+            ));
+            draw_mesh(&self.wheel_model);
+        }
+    }
+}
+
+enum TransformStack<'a> {
+    Camera(&'a Camera3D),
+    Transform(&'a Self, Mat4),
+}
+
+impl<'a> Camera for TransformStack<'a> {
+    fn matrix(&self) -> Mat4 {
+        match self {
+            Self::Camera(camera) => camera.matrix(),
+            Self::Transform(base, transform) => base.matrix().mul_mat4(transform),
+        }
+    }
+    fn depth_enabled(&self) -> bool {
+        match self {
+            Self::Camera(camera) => camera.depth_enabled(),
+            Self::Transform(base, _) => base.depth_enabled(),
+        }
+    }
+    fn render_pass(&self) -> Option<RenderPass> {
+        match self {
+            Self::Camera(camera) => camera.render_pass(),
+            Self::Transform(base, _) => base.render_pass(),
+        }
+    }
+    fn viewport(&self) -> Option<(i32, i32, i32, i32)> {
+        match self {
+            Self::Camera(camera) => camera.viewport(),
+            Self::Transform(base, _) => base.viewport(),
+        }
+    }
+}
+
+impl<'a> TransformStack<'a> {
+    fn new(camera: &'a Camera3D) -> Self {
+        let this = Self::Camera(camera);
+        set_camera(&this);
+        this
+    }
+    fn push(&self, transform: Affine3A) -> TransformStack {
+        let this = TransformStack::Transform(self, Mat4::from(transform));
+        set_camera(&this);
+        this
+    }
+}
+
+impl<'a> Drop for TransformStack<'a> {
+    fn drop(&mut self) {
+        if let Self::Transform(base, _) = self {
+            set_camera(*base);
+        }
+    }
 }
 
 fn grab(state: bool) {
@@ -75,11 +213,11 @@ fn grab(state: bool) {
 
 pub async fn main() -> Result<(), Error> {
     set_default_filter_mode(FilterMode::Linear);
-    let model = Mesh {
-        texture: Some(load_texture("l200.png").await?),
-        ..load_model("l200.obj").await?
-    };
-    let config: VehicleConfig = serde_json::from_slice(&load_file("l200.json").await?)?;
+    let vehicle = Vehicle::new(
+        serde_json::from_slice(&load_file("l200.json").await?)?,
+        load_model("l200.obj").await?,
+        load_texture("l200.png").await?,
+    );
 
     let mut grabbed = true;
     grab(grabbed);
@@ -112,11 +250,11 @@ pub async fn main() -> Result<(), Error> {
                 up: transorm.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
                 ..Default::default()
             };
-            set_camera(&camera);
+            let stack = TransformStack::new(&camera);
 
             clear_background(color::BLACK);
 
-            draw_mesh(&model);
+            vehicle.draw(&stack);
 
             set_default_camera();
         }
