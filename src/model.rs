@@ -1,8 +1,10 @@
 use anyhow::Error;
 use macroquad::{
+    camera::{set_camera, Camera, Camera3D},
     file::load_file,
-    math::{Vec2, Vec3, Vec4},
+    math::{Mat4, Vec2, Vec3, Vec4},
     models::{Mesh, Vertex},
+    texture::RenderPass,
 };
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -55,4 +57,57 @@ pub async fn load_model(path: &str) -> Result<Mesh, Error> {
         indices,
         texture: None,
     })
+}
+
+pub enum TransformStack<'a> {
+    Camera(&'a Camera3D),
+    Transform(&'a Self, Mat4),
+}
+
+impl<'a> Camera for TransformStack<'a> {
+    fn matrix(&self) -> Mat4 {
+        match self {
+            Self::Camera(camera) => camera.matrix(),
+            Self::Transform(base, transform) => base.matrix().mul_mat4(transform),
+        }
+    }
+    fn depth_enabled(&self) -> bool {
+        match self {
+            Self::Camera(camera) => camera.depth_enabled(),
+            Self::Transform(base, _) => base.depth_enabled(),
+        }
+    }
+    fn render_pass(&self) -> Option<RenderPass> {
+        match self {
+            Self::Camera(camera) => camera.render_pass(),
+            Self::Transform(base, _) => base.render_pass(),
+        }
+    }
+    fn viewport(&self) -> Option<(i32, i32, i32, i32)> {
+        match self {
+            Self::Camera(camera) => camera.viewport(),
+            Self::Transform(base, _) => base.viewport(),
+        }
+    }
+}
+
+impl<'a> TransformStack<'a> {
+    pub fn new(camera: &'a Camera3D) -> Self {
+        let this = Self::Camera(camera);
+        set_camera(&this);
+        this
+    }
+    pub fn push<T: Into<Mat4>>(&self, transform: T) -> TransformStack {
+        let this = TransformStack::Transform(self, transform.into());
+        set_camera(&this);
+        this
+    }
+}
+
+impl<'a> Drop for TransformStack<'a> {
+    fn drop(&mut self) {
+        if let Self::Transform(base, _) = self {
+            set_camera(*base);
+        }
+    }
 }
