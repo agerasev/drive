@@ -23,7 +23,8 @@ impl Tile {
 
 pub struct Terrain {
     mesh: Mesh,
-    pub tiles: Vec<Tile>,
+    /// TODO: Use quad-tree
+    tiles: Vec<Tile>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -90,6 +91,10 @@ impl Terrain {
             }
         }
         Self { mesh, tiles }
+    }
+
+    pub fn tiles(&self) -> impl Iterator<Item = Tile> + '_ {
+        self.tiles.iter().cloned()
     }
 
     pub fn draw(&self) {

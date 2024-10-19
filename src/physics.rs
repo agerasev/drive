@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::algebra::{Angular2, Angular3, Linear, Rot2};
+use crate::algebra::{Angular2, Angular3, Linear, Rot2, Rot3};
 use macroquad::math::{Vec2, Vec3};
 
 pub trait Parameter: Sized + Copy + Default {
@@ -56,7 +56,7 @@ impl<P: Parameter> DerefMut for Var<P> {
 }
 
 pub trait Visitor {
-    fn apply<P: Parameter>(&mut self, wp: &mut Var<P>);
+    fn apply<P: Parameter>(&mut self, v: &mut Var<P>);
 }
 
 pub trait System {
@@ -99,6 +99,12 @@ impl Parameter for Angular3 {
 impl Parameter for Rot2 {
     type Derivative = Angular2;
     fn step(self, dp: Angular2, dt: f32) -> Self {
+        self * (dp * dt).rot()
+    }
+}
+impl Parameter for Rot3 {
+    type Derivative = Angular3;
+    fn step(self, dp: Angular3, dt: f32) -> Self {
         self * (dp * dt).rot()
     }
 }

@@ -2,11 +2,14 @@ mod terrain;
 mod vehicle;
 
 use self::vehicle::Vehicle;
-use crate::model::{load_model, TransformStack};
+use crate::{
+    model::load_model,
+    physics::{Solver, System, Visitor},
+};
 use anyhow::Error;
 use defer::defer;
 use macroquad::{
-    camera::{set_default_camera, Camera3D},
+    camera::{set_camera, set_default_camera, Camera3D},
     color,
     file::load_file,
     input::{
@@ -16,15 +19,22 @@ use macroquad::{
     math::{EulerRot, Quat, Rect, Vec2, Vec3},
     miniquad::window::screen_size,
     texture::{load_texture, set_default_filter_mode, FilterMode},
+    time::get_frame_time,
     window::{clear_background, next_frame},
 };
 use rand::{rngs::SmallRng, SeedableRng};
 use std::{f32::consts::PI, future::Future, pin::Pin};
 use terrain::{noisy_texture, Terrain};
 
-fn grab(state: bool) {
-    show_mouse(!state);
-    set_cursor_grab(state);
+impl System for (&Terrain, &mut Vehicle) {
+    fn compute_derivs(&mut self) {
+        self.1.compute_basic_derivs();
+        self.1.interact_with_terrain(self.0);
+    }
+
+    fn visit_vars<V: Visitor>(&mut self, visitor: &mut V) {
+        self.1.visit_vars(visitor);
+    }
 }
 
 pub async fn main() -> Result<(), Error> {
@@ -44,12 +54,18 @@ pub async fn main() -> Result<(), Error> {
             Vec3::new(0.25, 0.25, 0.25),
         ),
     );
-    let vehicle = Vehicle::new(
+    let mut vehicle = Vehicle::new(
         serde_json::from_slice(&load_file("l200.json").await?)?,
+        Vec3::ZERO,
+        Quat::IDENTITY,
         load_model("l200.obj").await?,
         load_texture("l200.png").await?,
     );
 
+    fn grab(state: bool) {
+        show_mouse(!state);
+        set_cursor_grab(state);
+    }
     let mut grabbed = true;
     grab(grabbed);
     defer!(grab(false));
@@ -58,6 +74,8 @@ pub async fn main() -> Result<(), Error> {
     let wheel_sens: f32 = 0.2;
     let (mut r, mut phi, mut theta) = (10.0, 0.0, 0.0);
     while !is_key_down(KeyCode::Escape) {
+        let dt = get_frame_time();
+
         {
             if is_key_pressed(KeyCode::Tab) {
                 grabbed ^= true;
@@ -74,19 +92,23 @@ pub async fn main() -> Result<(), Error> {
         }
 
         {
+            Solver.solve_step(&mut (&terrain, &mut vehicle), dt);
+        }
+
+        {
             let transorm = Quat::from_euler(EulerRot::ZXY, phi, theta, 0.0);
-            let camera = Camera3D {
-                target: Vec3::ZERO,
-                position: transorm.mul_vec3(Vec3::new(0.0, -r, 0.0)),
+            let mut camera = Camera3D {
+                target: vehicle.pos(),
+                position: vehicle.pos() + transorm.mul_vec3(Vec3::new(0.0, -r, 0.0)),
                 up: transorm.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
                 ..Default::default()
             };
-            let stack = TransformStack::new(&camera);
+            set_camera(&camera);
 
             clear_background(color::BLACK);
 
             terrain.draw();
-            vehicle.draw(&stack);
+            vehicle.draw(&mut camera);
 
             set_default_camera();
         }

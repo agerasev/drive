@@ -1,4 +1,9 @@
-use crate::model::TransformStack;
+use super::terrain::Terrain;
+use crate::{
+    algebra::{Angular3, Rot3},
+    model::TransformStack,
+    physics::{Var, Visitor},
+};
 use macroquad::{
     math::{Affine3A, Mat3, Quat, Vec2, Vec3, Vec4},
     models::{draw_mesh, Mesh},
@@ -112,12 +117,24 @@ pub fn make_wheel_model(
 pub struct Vehicle {
     config: VehicleConfig,
 
+    pos: Var<Vec3>,
+    rot: Var<Rot3>,
+
+    vel: Var<Vec3>,
+    avel: Var<Angular3>,
+
     model: Mesh,
     wheel_model: Mesh,
 }
 
 impl Vehicle {
-    pub fn new(config: VehicleConfig, mut model: Mesh, texture: Texture2D) -> Self {
+    pub fn new(
+        config: VehicleConfig,
+        pos: Vec3,
+        rot: Quat,
+        mut model: Mesh,
+        texture: Texture2D,
+    ) -> Self {
         model.texture = Some(texture.clone());
         let wheel_model = make_wheel_model(
             64,
@@ -127,17 +144,48 @@ impl Vehicle {
         );
         Self {
             config,
+
+            pos: Var::new(pos),
+            rot: Var::new(Rot3::from(rot)),
+
+            vel: Var::default(),
+            avel: Var::default(),
+
             model,
             wheel_model,
         }
     }
 
-    pub fn draw(&self, stack: &TransformStack) {
+    pub fn pos(&self) -> Vec3 {
+        *self.pos
+    }
+
+    pub fn compute_basic_derivs(&mut self) {
+        self.pos.add_deriv(*self.vel);
+        self.rot.add_deriv(*self.avel);
+        self.vel.add_deriv(Vec3::new(0.0, 0.0, -9.8));
+    }
+
+    pub fn interact_with_terrain(&mut self, terrain: &Terrain) {}
+
+    pub fn visit_vars<V: Visitor>(&mut self, visitor: &mut V) {
+        visitor.apply(&mut self.pos);
+        visitor.apply(&mut self.rot);
+        visitor.apply(&mut self.vel);
+        visitor.apply(&mut self.avel);
+    }
+
+    pub fn draw(&self, stack: &mut impl TransformStack) {
+        let mut local = stack.push(Affine3A::from_rotation_translation(
+            Quat::from(*self.rot),
+            *self.pos,
+        ));
+
         draw_mesh(&self.model);
 
         let wheel_common = &self.config.wheel_common;
         for wheel in &self.config.wheels {
-            let _transform = stack.push(Affine3A::from_scale_rotation_translation(
+            let _t = local.push(Affine3A::from_scale_rotation_translation(
                 Vec3::new(wheel_common.radius, wheel_common.radius, wheel_common.width),
                 Quat::from_rotation_y(0.5 * PI),
                 wheel.position,

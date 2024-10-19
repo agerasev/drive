@@ -1,5 +1,7 @@
-use derive_more::derive::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use macroquad::math::{Mat2, Vec2, Vec3};
+use derive_more::derive::{
+    Add, AddAssign, Div, DivAssign, From, Into, Mul, MulAssign, Neg, Sub, SubAssign,
+};
+use macroquad::math::{Mat2, Mat3, Quat, Vec2, Vec3};
 use std::{
     f32::consts::PI,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
@@ -72,17 +74,19 @@ pub struct Angular3(pub Vec3);
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Rot2(f32);
 
-/*
 /// 3D Rotation.
-#[derive(Clone, Copy, Debug)]
-pub struct Rot3(Quat);
+#[derive(Clone, Copy, Debug, From, Into)]
+pub struct Rot3(
+    #[from]
+    #[into]
+    Quat,
+);
 
 impl Default for Rot3 {
     fn default() -> Self {
         Self(Quat::IDENTITY)
     }
 }
-*/
 
 impl Rot2 {
     /// Angle in radians `0.0..(2.0 * PI)`
@@ -91,7 +95,7 @@ impl Rot2 {
     }
     /// Angle in degrees `0.0..360.0`
     pub fn angle_degrees(self) -> f32 {
-        180.0 / PI * self.angle()
+        (180.0 / PI) * self.angle()
     }
 
     pub fn matrix(self) -> Mat2 {
@@ -119,6 +123,25 @@ impl Mul<f32> for Rot2 {
     }
 }
 
+impl Rot3 {
+    pub fn matrix(self) -> Mat3 {
+        Mat3::from_quat(self.0)
+    }
+    pub fn apply(self, v: Vec3) -> Vec3 {
+        self.0.mul_vec3(v)
+    }
+    pub fn chain(self, other: Self) -> Self {
+        Self(self.0.mul_quat(other.0).normalize())
+    }
+}
+
+impl Mul for Rot3 {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        self.chain(rhs)
+    }
+}
+
 impl Angular2 {
     pub fn rot(self) -> Rot2 {
         Rot2(self.0)
@@ -128,5 +151,17 @@ impl Angular2 {
     }
     pub fn torque(r: Vec2, f: Vec2) -> Self {
         Self(r.perp_dot(f))
+    }
+}
+
+impl Angular3 {
+    pub fn rot(self) -> Rot3 {
+        Rot3(Quat::from_scaled_axis(self.0))
+    }
+    pub fn vel_at(self, r: Vec3) -> Vec3 {
+        self.0.cross(r)
+    }
+    pub fn torque(r: Vec3, f: Vec3) -> Self {
+        Self(r.cross(f))
     }
 }
