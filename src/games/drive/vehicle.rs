@@ -1,6 +1,6 @@
 use super::terrain::Terrain;
 use crate::{
-    algebra::{Angular3, Rot3},
+    algebra::{Angular2, Angular3, Rot2, Rot3},
     model::TransformStack,
     physics::{Var, Visitor},
 };
@@ -11,7 +11,9 @@ use macroquad::{
     ui::Vertex,
 };
 use serde::{Deserialize, Deserializer};
-use std::f32::consts::PI;
+use std::{f32::consts::PI, rc::Rc};
+
+const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
 
 fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
     Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
@@ -53,6 +55,9 @@ pub struct WheelConfig {
     /// Liquid friction of shock absorber (N/(m/s))
     pub damping: f32,
 
+    /// Maximum wheel deviation to up from lower position
+    pub max_deviation: f32,
+
     #[serde(deserialize_with = "de_vec2")]
     pub texture_center: Vec2,
     pub texture_radius: f32,
@@ -60,6 +65,7 @@ pub struct WheelConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct WheelInstanceConfig {
+    /// Position of equilibrium (when no force apllied, lower postion)
     #[serde(deserialize_with = "de_vec3")]
     pub position: Vec3,
 }
@@ -123,8 +129,74 @@ pub struct Vehicle {
     vel: Var<Vec3>,
     avel: Var<Angular3>,
 
+    wheels: [Wheel; 4],
+
     model: Mesh,
-    wheel_model: Mesh,
+}
+
+pub struct Wheel {
+    common: WheelConfig,
+    config: WheelInstanceConfig,
+
+    // axis: Vec3,
+    rot: Var<Rot2>,
+    avel: Var<Angular2>,
+
+    dev: f32,
+
+    model: Rc<Mesh>,
+}
+
+impl Wheel {
+    fn new(common: WheelConfig, config: WheelInstanceConfig, model: Rc<Mesh>) -> Self {
+        Self {
+            common,
+            config,
+            //axis,
+            rot: Var::default(),
+            avel: Var::default(),
+            dev: 0.0,
+            model,
+        }
+    }
+
+    pub fn pos(&self) -> Vec3 {
+        self.config.position + Vec3::new(0.0, 0.0, self.dev)
+    }
+    pub fn low_poc(&self) -> Vec3 {
+        self.config.position + Vec3::new(0.0, 0.0, -self.common.radius)
+    }
+    pub fn high_poc(&self) -> Vec3 {
+        self.config.position + Vec3::new(0.0, 0.0, -self.common.radius + self.common.max_deviation)
+    }
+
+    /// Returns point of contact and force applied
+    fn interact_with_terrain(&mut self, map: Affine3A, terrain: &Terrain) -> Option<(Vec3, Vec3)> {
+        if let Some((dist, poc, normal)) = terrain.intersect_line(
+            map.transform_point3(self.high_poc()),
+            map.transform_point3(self.low_poc()),
+        ) {
+            self.dev = self.common.max_deviation - dist;
+            let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1);
+            let force = map
+                .transform_vector3(Vec3::new(0.0, 0.0, susp))
+                .project_onto_normalized(normal);
+            let imap = map.inverse();
+            Some((imap.transform_point3(poc), imap.transform_vector3(force)))
+        } else {
+            self.dev = 0.0;
+            None
+        }
+    }
+
+    fn draw(&self, stack: &mut impl TransformStack) {
+        let _t = stack.push(Affine3A::from_scale_rotation_translation(
+            Vec3::new(self.common.radius, self.common.radius, self.common.width),
+            Quat::from_rotation_y(0.5 * PI),
+            self.pos(),
+        ));
+        draw_mesh(&self.model);
+    }
 }
 
 impl Vehicle {
@@ -136,14 +208,14 @@ impl Vehicle {
         texture: Texture2D,
     ) -> Self {
         model.texture = Some(texture.clone());
-        let wheel_model = make_wheel_model(
+        let wheel_model = Rc::new(make_wheel_model(
             64,
             config.wheel_common.texture_center,
             config.wheel_common.texture_radius,
             texture,
-        );
+        ));
         Self {
-            config,
+            config: config.clone(),
 
             pos: Var::new(pos),
             rot: Var::new(Rot3::from(rot)),
@@ -151,8 +223,11 @@ impl Vehicle {
             vel: Var::default(),
             avel: Var::default(),
 
+            wheels: config
+                .wheels
+                .map(|wc| Wheel::new(config.wheel_common.clone(), wc, wheel_model.clone())),
+
             model,
-            wheel_model,
         }
     }
 
@@ -163,16 +238,30 @@ impl Vehicle {
     pub fn compute_basic_derivs(&mut self) {
         self.pos.add_deriv(*self.vel);
         self.rot.add_deriv(*self.avel);
-        self.vel.add_deriv(Vec3::new(0.0, 0.0, -9.8));
+        self.vel.add_deriv(GRAVITY);
+        for wheel in &mut self.wheels {
+            wheel.rot.add_deriv(*wheel.avel);
+        }
     }
 
-    pub fn interact_with_terrain(&mut self, terrain: &Terrain) {}
+    pub fn interact_with_terrain(&mut self, terrain: &Terrain) {
+        let map = Affine3A::from_rotation_translation(Quat::from(*self.rot), *self.pos);
+        for wheel in &mut self.wheels {
+            if let Some((poc, force)) = wheel.interact_with_terrain(map, terrain) {
+                self.vel.add_deriv(force / self.config.mass);
+            }
+        }
+    }
 
     pub fn visit_vars<V: Visitor>(&mut self, visitor: &mut V) {
         visitor.apply(&mut self.pos);
         visitor.apply(&mut self.rot);
         visitor.apply(&mut self.vel);
         visitor.apply(&mut self.avel);
+        for wheel in &mut self.wheels {
+            visitor.apply(&mut wheel.rot);
+            visitor.apply(&mut wheel.avel);
+        }
     }
 
     pub fn draw(&self, stack: &mut impl TransformStack) {
@@ -183,14 +272,8 @@ impl Vehicle {
 
         draw_mesh(&self.model);
 
-        let wheel_common = &self.config.wheel_common;
-        for wheel in &self.config.wheels {
-            let _t = local.push(Affine3A::from_scale_rotation_translation(
-                Vec3::new(wheel_common.radius, wheel_common.radius, wheel_common.width),
-                Quat::from_rotation_y(0.5 * PI),
-                wheel.position,
-            ));
-            draw_mesh(&self.wheel_model);
+        for wheel in &self.wheels {
+            wheel.draw(&mut local);
         }
     }
 }

@@ -8,23 +8,12 @@ use macroquad::{
 use rand::Rng;
 use rand_distr::Uniform;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Tile {
-    pub vertices: [Vec3; 3],
-}
-
-impl Tile {
-    pub fn normal(&self) -> Vec3 {
-        (self.vertices[0] - self.vertices[1])
-            .cross(self.vertices[2] - self.vertices[0])
-            .normalize_or_zero()
-    }
-}
+use crate::geometry::Triangle3;
 
 pub struct Terrain {
     mesh: Mesh,
     /// TODO: Use quad-tree
-    tiles: Vec<Tile>,
+    tiles: Vec<Triangle3>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -82,9 +71,9 @@ impl Terrain {
                     let square_indices = [n - 1, n - 2, n - n_steps - 2, n - n_steps - 3];
                     let new_tile_indices =
                         [[0, 1, 2], [1, 3, 2]].map(|ti| ti.map(|i| square_indices[i]));
-                    tiles.extend(new_tile_indices.map(|ti| Tile {
-                        vertices: ti.map(|i| points[i].pos),
-                    }));
+                    tiles.extend(
+                        new_tile_indices.map(|ti| Triangle3::from(ti.map(|i| points[i].pos))),
+                    );
                     mesh.indices
                         .extend(new_tile_indices.into_iter().flatten().map(|i| i as u16));
                 }
@@ -93,8 +82,15 @@ impl Terrain {
         Self { mesh, tiles }
     }
 
-    pub fn tiles(&self) -> impl Iterator<Item = Tile> + '_ {
+    pub fn tiles(&self) -> impl Iterator<Item = Triangle3> + '_ {
         self.tiles.iter().cloned()
+    }
+
+    /// Returns: (distance from start, intersection point, normal at the point)
+    pub fn intersect_line(&self, start: Vec3, end: Vec3) -> Option<(f32, Vec3, Vec3)> {
+        self.tiles()
+            .filter_map(|tile| tile.intersect_line(start, end))
+            .min_by(|(dist0, ..), (dist1, ..)| dist0.total_cmp(dist1))
     }
 
     pub fn draw(&self) {

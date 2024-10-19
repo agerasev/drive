@@ -9,15 +9,16 @@ use crate::{
 use anyhow::Error;
 use defer::defer;
 use macroquad::{
-    camera::{set_camera, set_default_camera, Camera3D},
+    camera::{set_camera, set_default_camera, Camera, Camera3D},
     color,
     file::load_file,
     input::{
-        is_key_down, is_key_pressed, is_mouse_button_down, mouse_delta_position, mouse_wheel,
-        set_cursor_grab, show_mouse, KeyCode, MouseButton,
+        is_key_down, is_key_pressed, is_mouse_button_down, mouse_delta_position,
+        mouse_position_local, mouse_wheel, set_cursor_grab, show_mouse, KeyCode, MouseButton,
     },
     math::{EulerRot, Quat, Rect, Vec2, Vec3},
     miniquad::window::screen_size,
+    models::draw_sphere,
     texture::{load_texture, set_default_filter_mode, FilterMode},
     time::get_frame_time,
     window::{clear_background, next_frame},
@@ -105,7 +106,21 @@ pub async fn main() -> Result<(), Error> {
             };
             set_camera(&camera);
 
-            clear_background(color::BLACK);
+            clear_background(color::GRAY);
+
+            if !grabbed {
+                let origin = camera.position;
+                let mouse_pos = camera.matrix().inverse().project_point3(Vec3::from((
+                    mouse_position_local() * Vec2::new(1.0, -1.0),
+                    0.98,
+                )));
+                let mouse_dir = mouse_pos - origin;
+                if let Some((dist, poi, _)) =
+                    terrain.intersect_line(origin, origin + 1e3 * mouse_dir)
+                {
+                    draw_sphere(poi, 0.01 * dist, None, color::RED);
+                }
+            }
 
             terrain.draw();
             vehicle.draw(&mut camera);
