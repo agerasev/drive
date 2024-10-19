@@ -18,19 +18,32 @@ use macroquad::{
     texture::{load_texture, set_default_filter_mode, FilterMode},
     window::{clear_background, next_frame},
 };
+use rand::{rngs::SmallRng, SeedableRng};
 use std::{f32::consts::PI, future::Future, pin::Pin};
-use terrain::Terrain;
+use terrain::{noisy_texture, Terrain};
 
 fn grab(state: bool) {
-    set_cursor_grab(state);
     show_mouse(!state);
+    set_cursor_grab(state);
 }
 
 pub async fn main() -> Result<(), Error> {
+    let mut rng = SmallRng::from_entropy();
+
     set_default_filter_mode(FilterMode::Linear);
 
-    let terrain =
-        Terrain::from_height_map(|c| 6.0 - 8.0 / (1.0 + c.length_squared() / 512.0), 64.0, 16);
+    let terrain = Terrain::from_height_map(
+        |c| 6.0 - 8.0 / (1.0 + 0.002 * c.length_squared()),
+        64.0,
+        16,
+        noisy_texture(
+            &mut rng,
+            1024,
+            1024,
+            Vec3::new(0.0, 0.50, 0.0),
+            Vec3::new(0.25, 0.25, 0.25),
+        ),
+    );
     let vehicle = Vehicle::new(
         serde_json::from_slice(&load_file("l200.json").await?)?,
         load_model("l200.obj").await?,
@@ -56,7 +69,7 @@ pub async fn main() -> Result<(), Error> {
             } else if grabbed || is_mouse_button_down(MouseButton::Left) {
                 let delta = mouse_sens * mouse_delta_position() * Vec2::from(screen_size());
                 phi = (phi + delta.x) % (2.0 * PI);
-                theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
+                theta = (theta + delta.y).clamp(-0.5 * PI, 0.0);
             }
         }
 

@@ -1,10 +1,12 @@
-use derive_more::derive::{Deref, DerefMut};
 use macroquad::{
     color::Color,
     math::{Vec2, Vec3, Vec4},
     models::{draw_mesh, Mesh},
+    texture::Texture2D,
     ui::Vertex,
 };
+use rand::Rng;
+use rand_distr::Uniform;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Tile {
@@ -49,13 +51,18 @@ fn sample_height_map<F: Fn(Vec2) -> f32>(f: &F, coord: Vec2) -> Point {
 }
 
 impl Terrain {
-    pub fn from_height_map<F: Fn(Vec2) -> f32>(f: F, grid_size: f32, n_steps: usize) -> Self {
+    pub fn from_height_map<F: Fn(Vec2) -> f32>(
+        f: F,
+        grid_size: f32,
+        n_steps: usize,
+        texture: Texture2D,
+    ) -> Self {
         let mut points = Vec::new();
         let mut tiles = Vec::new();
         let mut mesh = Mesh {
             vertices: Vec::new(),
             indices: Vec::new(),
-            texture: None,
+            texture: Some(texture),
         };
         for iy in 0..(n_steps + 1) {
             for ix in 0..(n_steps + 1) {
@@ -66,8 +73,7 @@ impl Terrain {
                 mesh.vertices.push(Vertex {
                     position: point.pos,
                     uv,
-                    color: Color::from_vec(Vec4::from((uv, 1.0 - 0.5 * uv.element_sum(), 1.0)))
-                        .into(),
+                    color: Color::from_vec(Vec4::from((Vec3::splat(point.normal.z), 1.0))).into(),
                     normal: Vec4::from((point.normal, 1.0)),
                 });
                 if ix != 0 && iy != 0 {
@@ -89,4 +95,15 @@ impl Terrain {
     pub fn draw(&self) {
         draw_mesh(&self.mesh);
     }
+}
+
+pub fn noisy_texture<R: Rng>(rng: R, width: u16, height: u16, base: Vec3, var: Vec3) -> Texture2D {
+    Texture2D::from_rgba8(
+        width,
+        height,
+        &rng.sample_iter(Uniform::new(0.0, 1.0))
+            .take(width as usize * height as usize)
+            .flat_map(|a| Into::<[u8; 4]>::into(Color::from_vec(Vec4::from((base + a * var, 1.0)))))
+            .collect::<Vec<u8>>(),
+    )
 }
