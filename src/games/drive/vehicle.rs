@@ -1,11 +1,12 @@
 use super::terrain::Terrain;
 use crate::{
-    algebra::{Angular2, Angular3, Rot2, Rot3},
+    algebra::{Rot2, Rot3},
     model::TransformStack,
-    physics::{Var, Visitor},
+    numerical::{Var, Visitor},
+    physics::{angular_to_linear3, torque3},
 };
 use macroquad::{
-    math::{Affine3A, Mat3, Quat, Vec2, Vec3, Vec4},
+    math::{Affine3A, Quat, Vec2, Vec3, Vec4},
     models::{draw_mesh, Mesh},
     texture::Texture2D,
     ui::Vertex,
@@ -18,24 +19,17 @@ const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -4.0);
 fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
     Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
 }
-
 fn de_vec3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec3, D::Error> {
     Ok(Vec3::from(<[f32; 3]>::deserialize(deserializer)?))
-}
-
-fn de_mat3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Mat3, D::Error> {
-    Ok(Mat3::from_cols_array_2d(&<[[f32; 3]; 3]>::deserialize(
-        deserializer,
-    )?))
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct VehicleConfig {
     /// Mass (kg)
     pub mass: f32,
-    /// Moment of inertia tensor (kg*m^2)
-    #[serde(deserialize_with = "de_mat3")]
-    pub moment_of_inertia: Mat3,
+    /// Principal moments of inertia (kg*m^2)
+    #[serde(deserialize_with = "de_vec3")]
+    pub principal_moments_of_inertia: Vec3,
 
     pub wheel_common: WheelConfig,
     pub wheels: [WheelInstanceConfig; 4],
@@ -127,7 +121,8 @@ pub struct Vehicle {
     rot: Var<Rot3>,
 
     vel: Var<Vec3>,
-    avel: Var<Angular3>,
+    /// Angular speed in rotating reference frame around principal axes of inertia coordinates
+    rasp: Var<Vec3>,
 
     wheels: [Wheel; 4],
 
@@ -140,7 +135,8 @@ pub struct Wheel {
 
     // axis: Vec3,
     rot: Var<Rot2>,
-    avel: Var<Angular2>,
+    /// Angular speed
+    asp: Var<f32>,
 
     dev: f32,
 
@@ -154,7 +150,7 @@ impl Wheel {
             config,
             //axis,
             rot: Var::default(),
-            avel: Var::default(),
+            asp: Var::default(),
             dev: 0.0,
             model,
         }
@@ -226,7 +222,7 @@ impl Vehicle {
             rot: Var::new(Rot3::from(rot)),
 
             vel: Var::default(),
-            avel: Var::default(),
+            rasp: Var::default(),
 
             wheels: config
                 .wheels
@@ -242,21 +238,31 @@ impl Vehicle {
 
     pub fn compute_basic_derivs(&mut self) {
         self.pos.add_deriv(*self.vel);
-        self.rot.add_deriv(*self.avel);
+        self.rot.add_deriv(self.rot.transform(*self.rasp));
+
         self.vel.add_deriv(GRAVITY);
+
+        let inert = self.config.principal_moments_of_inertia;
+        // According to Euler's equation
+        self.rasp
+            .add_deriv(-self.rasp.cross(inert * *self.rasp) / inert);
+
         for wheel in &mut self.wheels {
-            wheel.rot.add_deriv(*wheel.avel);
+            wheel.rot.add_deriv(*wheel.asp);
         }
     }
 
     pub fn interact_with_terrain(&mut self, terrain: &Terrain) {
         let map = Affine3A::from_rotation_translation(Quat::from(*self.rot), *self.pos);
+
         for wheel in self.wheels.iter_mut() {
-            let vel_at = *self.vel + self.avel.vel_at(map.transform_vector3(wheel.upper_poc()));
+            let vel_at =
+                *self.vel + (self.rot).transform(angular_to_linear3(*self.rasp, wheel.upper_poc()));
             if let Some((poc, force)) = wheel.interact_with_terrain(map, vel_at, terrain) {
                 self.vel.add_deriv(force / self.config.mass);
-                self.avel
-                    .add_deriv(Angular3::torque(poc - *self.pos, 0.0001 * force));
+                self.rasp.add_deriv(self.rot.inverse().transform(
+                    torque3(poc - *self.pos, force) / self.config.principal_moments_of_inertia,
+                ));
             }
         }
     }
@@ -265,10 +271,10 @@ impl Vehicle {
         visitor.apply(&mut self.pos);
         visitor.apply(&mut self.rot);
         visitor.apply(&mut self.vel);
-        visitor.apply(&mut self.avel);
+        visitor.apply(&mut self.rasp);
         for wheel in &mut self.wheels {
             visitor.apply(&mut wheel.rot);
-            visitor.apply(&mut wheel.avel);
+            visitor.apply(&mut wheel.asp);
         }
     }
 

@@ -4,7 +4,7 @@ mod vehicle;
 use self::vehicle::Vehicle;
 use crate::{
     model::load_model,
-    physics::{Solver, System, Visitor},
+    numerical::{Solver, System, Visitor},
 };
 use anyhow::Error;
 use defer::defer;
@@ -44,7 +44,7 @@ pub async fn main() -> Result<(), Error> {
     set_default_filter_mode(FilterMode::Linear);
 
     let terrain = Terrain::from_height_map(
-        |c| 4.0 - 8.0 / (1.0 + 0.002 * c.length_squared()),
+        |c| 8.0 * (1.0 - 1.0 / (1.0 + 0.002 * c.length_squared())),
         64.0,
         16,
         noisy_texture(
@@ -57,7 +57,7 @@ pub async fn main() -> Result<(), Error> {
     );
     let mut vehicle = Vehicle::new(
         serde_json::from_slice(&load_file("l200.json").await?)?,
-        Vec3::new(4.0, 4.0, -1.0),
+        Vec3::new(4.0, 4.0, 3.0),
         Quat::IDENTITY,
         load_model("l200.obj").await?,
         load_texture("l200.png").await?,

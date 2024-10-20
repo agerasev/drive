@@ -1,10 +1,6 @@
 {
     "mass": 1800.0,
-    "moment_of_inertia": [
-        [2000.0, 0.0, 0.0],
-        [0.0, 750.0, 0.0],
-        [0.0, 0.0, 2400.0]
-    ],
+    "principal_moments_of_inertia": [2000.0, 750.0, 2400.0],
     "wheel_common": {
         "radius": 0.44,
         "width": 0.32,
