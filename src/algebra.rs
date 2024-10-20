@@ -131,7 +131,7 @@ impl Rot3 {
         self.0.mul_vec3(v)
     }
     pub fn chain(self, other: Self) -> Self {
-        Self(self.0.mul_quat(other.0).normalize())
+        Self(other.0.mul_quat(self.0).normalize())
     }
 }
 

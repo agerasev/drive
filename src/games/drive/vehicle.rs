@@ -13,7 +13,7 @@ use macroquad::{
 use serde::{Deserialize, Deserializer};
 use std::{f32::consts::PI, rc::Rc};
 
-const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
+const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -4.0);
 
 fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
     Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
@@ -55,8 +55,8 @@ pub struct WheelConfig {
     /// Liquid friction of shock absorber (N/(m/s))
     pub damping: f32,
 
-    /// Maximum wheel deviation to up from lower position
-    pub max_deviation: f32,
+    /// Maximum wheel deviation from lower position to upper position
+    pub travel: f32,
 
     #[serde(deserialize_with = "de_vec2")]
     pub texture_center: Vec2,
@@ -67,7 +67,7 @@ pub struct WheelConfig {
 pub struct WheelInstanceConfig {
     /// Position of equilibrium (when no force apllied, lower postion)
     #[serde(deserialize_with = "de_vec3")]
-    pub position: Vec3,
+    pub center: Vec3,
 }
 
 pub fn make_wheel_model(
@@ -161,28 +161,33 @@ impl Wheel {
     }
 
     pub fn pos(&self) -> Vec3 {
-        self.config.position + Vec3::new(0.0, 0.0, self.dev)
+        self.config.center + self.dev * Vec3::Z
     }
-    pub fn low_poc(&self) -> Vec3 {
-        self.config.position + Vec3::new(0.0, 0.0, -self.common.radius)
+    pub fn lower_poc(&self) -> Vec3 {
+        self.config.center - self.common.radius * Vec3::Z
     }
-    pub fn high_poc(&self) -> Vec3 {
-        self.config.position + Vec3::new(0.0, 0.0, -self.common.radius + self.common.max_deviation)
+    pub fn upper_poc(&self) -> Vec3 {
+        self.config.center + (self.common.travel - self.common.radius) * Vec3::Z
     }
 
     /// Returns point of contact and force applied
-    fn interact_with_terrain(&mut self, map: Affine3A, terrain: &Terrain) -> Option<(Vec3, Vec3)> {
+    fn interact_with_terrain(
+        &mut self,
+        map: Affine3A,
+        vel_at: Vec3,
+        terrain: &Terrain,
+    ) -> Option<(Vec3, Vec3)> {
         if let Some((dist, poc, normal)) = terrain.intersect_line(
-            map.transform_point3(self.high_poc()),
-            map.transform_point3(self.low_poc()),
+            map.transform_point3(self.upper_poc()),
+            map.transform_point3(self.lower_poc()),
         ) {
-            self.dev = self.common.max_deviation - dist;
-            let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1);
+            self.dev = self.common.travel - dist;
+            let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1)
+                - vel_at.dot(map.transform_vector3(Vec3::Z)) * self.common.damping;
             let force = map
-                .transform_vector3(Vec3::new(0.0, 0.0, susp))
+                .transform_vector3(susp * Vec3::Z)
                 .project_onto_normalized(normal);
-            let imap = map.inverse();
-            Some((imap.transform_point3(poc), imap.transform_vector3(force)))
+            Some((poc, force))
         } else {
             self.dev = 0.0;
             None
@@ -246,9 +251,12 @@ impl Vehicle {
 
     pub fn interact_with_terrain(&mut self, terrain: &Terrain) {
         let map = Affine3A::from_rotation_translation(Quat::from(*self.rot), *self.pos);
-        for wheel in &mut self.wheels {
-            if let Some((poc, force)) = wheel.interact_with_terrain(map, terrain) {
+        for wheel in self.wheels.iter_mut() {
+            let vel_at = *self.vel + self.avel.vel_at(map.transform_vector3(wheel.upper_poc()));
+            if let Some((poc, force)) = wheel.interact_with_terrain(map, vel_at, terrain) {
                 self.vel.add_deriv(force / self.config.mass);
+                self.avel
+                    .add_deriv(Angular3::torque(poc - *self.pos, 0.0001 * force));
             }
         }
     }

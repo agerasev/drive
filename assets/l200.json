@@ -12,22 +12,22 @@
         "moment_of_inertia": 3.6,
         "hardness": [24000.0, 8000.0],
         "damping": 2400.0,
-        "max_deviation": 1.0,
+        "travel": 2.0,
         "texture_center": [190.0, 221.0],
         "texture_radius": 49.0
     },
     "wheels": [
         {
-            "position": [-1.0, 1.97, -0.88]
+            "center": [-1.0, 1.97, -0.88]
         },
         {
-            "position": [1.0, 1.97, -0.88]
+            "center": [1.0, 1.97, -0.88]
         },
         {
-            "position": [1.0, -1.36, -0.88]
+            "center": [1.0, -1.36, -0.88]
         },
         {
-            "position": [-1.0, -1.36, -0.88]
+            "center": [-1.0, -1.36, -0.88]
         }
     ]
 }

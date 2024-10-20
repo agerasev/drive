@@ -44,20 +44,20 @@ pub async fn main() -> Result<(), Error> {
     set_default_filter_mode(FilterMode::Linear);
 
     let terrain = Terrain::from_height_map(
-        |c| 6.0 - 8.0 / (1.0 + 0.002 * c.length_squared()),
+        |c| 4.0 - 8.0 / (1.0 + 0.002 * c.length_squared()),
         64.0,
         16,
         noisy_texture(
             &mut rng,
-            1024,
-            1024,
+            256,
+            256,
             Vec3::new(0.0, 0.50, 0.0),
             Vec3::new(0.25, 0.25, 0.25),
         ),
     );
     let mut vehicle = Vehicle::new(
         serde_json::from_slice(&load_file("l200.json").await?)?,
-        Vec3::ZERO,
+        Vec3::new(4.0, 4.0, -1.0),
         Quat::IDENTITY,
         load_model("l200.obj").await?,
         load_texture("l200.png").await?,
@@ -73,9 +73,9 @@ pub async fn main() -> Result<(), Error> {
 
     let mouse_sens = Vec2::new(5e-4, 5e-4);
     let wheel_sens: f32 = 0.2;
-    let (mut r, mut phi, mut theta) = (10.0, 0.0, 0.0);
+    let (mut r, mut phi, mut theta) = (10.0, 0.0, -PI / 4.0);
     while !is_key_down(KeyCode::Escape) {
-        let dt = get_frame_time();
+        let dt = get_frame_time().max(0.04);
 
         {
             if is_key_pressed(KeyCode::Tab) {
@@ -88,7 +88,7 @@ pub async fn main() -> Result<(), Error> {
             } else if grabbed || is_mouse_button_down(MouseButton::Left) {
                 let delta = mouse_sens * mouse_delta_position() * Vec2::from(screen_size());
                 phi = (phi + delta.x) % (2.0 * PI);
-                theta = (theta + delta.y).clamp(-0.5 * PI, 0.0);
+                theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
             }
         }
 
