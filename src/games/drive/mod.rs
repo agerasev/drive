@@ -90,6 +90,24 @@ pub async fn main() -> Result<(), Error> {
                 phi = (phi + delta.x) % (2.0 * PI);
                 theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
             }
+
+            let fwd = is_key_down(KeyCode::W) || is_key_down(KeyCode::Up);
+            let bwd = is_key_down(KeyCode::S) || is_key_down(KeyCode::Down);
+            let brake = is_key_down(KeyCode::Space);
+            vehicle.brake(brake || (fwd && bwd));
+            vehicle.accelerate(0.0, 1.0);
+            if !brake {
+                if fwd {
+                    vehicle.accelerate(1.0, 0.1);
+                } else if bwd {
+                    vehicle.accelerate(1.0, -0.1);
+                } else {
+                    vehicle.accelerate(0.0, 0.1);
+                }
+            }
+            let dir = (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left)) as i32
+                - (is_key_down(KeyCode::D) || is_key_down(KeyCode::Right)) as i32;
+            vehicle.steer((PI / 6.0) * dir as f32);
         }
 
         {

@@ -1,6 +1,9 @@
 {
     "mass": 1800.0,
     "principal_moments_of_inertia": [2000.0, 750.0, 2400.0],
+    "max_power": 113000.0,
+    "max_torque": 380.0,
+    "max_speed": 50.0,
     "wheel_common": {
         "radius": 0.44,
         "width": 0.32,
