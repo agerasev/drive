@@ -14,12 +14,12 @@ use macroquad::{
 use serde::{Deserialize, Deserializer};
 use std::{f32::consts::PI, rc::Rc};
 
-const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -4.0);
+const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
 
 /// How fast dry frinction grow depending on speed.
 ///
 /// Ideally this should be infinity, but then we cannot solve it by RK4.  
-const DRY_FRICTION_SLOPE: f32 = 1.0;
+const DRY_FRICTION_SLOPE: f32 = 0.5;
 
 fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
     Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
@@ -126,6 +126,31 @@ pub fn make_wheel_model(
     }
 }
 
+pub struct VehicleModel {
+    config: VehicleConfig,
+
+    wheel_model: Rc<Mesh>,
+    model: Rc<Mesh>,
+}
+
+impl VehicleModel {
+    pub fn new(config: VehicleConfig, mut model: Mesh, texture: Texture2D) -> Self {
+        model.texture = Some(texture.clone());
+        let wheel_model = Rc::new(make_wheel_model(
+            32,
+            config.wheel_common.texture_center,
+            config.wheel_common.texture_radius,
+            texture,
+        ));
+        Self {
+            config: config.clone(),
+
+            wheel_model,
+            model: Rc::new(model),
+        }
+    }
+}
+
 pub struct Vehicle {
     config: VehicleConfig,
 
@@ -138,7 +163,7 @@ pub struct Vehicle {
 
     wheels: [Wheel; 4],
 
-    model: Mesh,
+    model: Rc<Mesh>,
 }
 
 pub struct Wheel {
@@ -241,22 +266,9 @@ impl Wheel {
 }
 
 impl Vehicle {
-    pub fn new(
-        config: VehicleConfig,
-        pos: Vec3,
-        rot: Quat,
-        mut model: Mesh,
-        texture: Texture2D,
-    ) -> Self {
-        model.texture = Some(texture.clone());
-        let wheel_model = Rc::new(make_wheel_model(
-            64,
-            config.wheel_common.texture_center,
-            config.wheel_common.texture_radius,
-            texture,
-        ));
+    pub fn new(model: &VehicleModel, pos: Vec3, rot: Quat) -> Self {
         Self {
-            config: config.clone(),
+            config: model.config.clone(),
 
             pos: Var::new(pos),
             rot: Var::new(Rot3::from(rot)),
@@ -264,11 +276,15 @@ impl Vehicle {
             vel: Var::default(),
             rasp: Var::default(),
 
-            wheels: config
-                .wheels
-                .map(|wc| Wheel::new(config.wheel_common.clone(), wc, wheel_model.clone())),
+            wheels: model.config.wheels.clone().map(|wc| {
+                Wheel::new(
+                    model.config.wheel_common.clone(),
+                    wc,
+                    model.wheel_model.clone(),
+                )
+            }),
 
-            model,
+            model: model.model.clone(),
         }
     }
 
@@ -279,7 +295,7 @@ impl Vehicle {
     pub fn accelerate(&mut self, throttle: f32, transmission: f32) {
         // All wheels
         for wheel in &mut self.wheels {
-            wheel.acc = -(throttle / transmission) * self.config.max_torque
+            wheel.acc = -(throttle / transmission) * (self.config.max_torque / 4.0)
                 / wheel.common.moment_of_inertia;
         }
     }

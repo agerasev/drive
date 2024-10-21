@@ -26,6 +26,7 @@ use macroquad::{
 use rand::{rngs::SmallRng, SeedableRng};
 use std::{f32::consts::PI, future::Future, pin::Pin};
 use terrain::{noisy_texture, Terrain};
+use vehicle::VehicleModel;
 
 impl System for (&Terrain, &mut Vehicle) {
     fn compute_derivs(&mut self) {
@@ -55,10 +56,8 @@ pub async fn main() -> Result<(), Error> {
             Vec3::new(0.25, 0.25, 0.25),
         ),
     );
-    let mut vehicle = Vehicle::new(
+    let model = VehicleModel::new(
         serde_json::from_slice(&load_file("l200.json").await?)?,
-        Vec3::new(4.0, 4.0, 3.0),
-        Quat::IDENTITY,
         load_model("l200.obj").await?,
         load_texture("l200.png").await?,
     );
@@ -73,80 +72,96 @@ pub async fn main() -> Result<(), Error> {
 
     let mouse_sens = Vec2::new(5e-4, 5e-4);
     let wheel_sens: f32 = 0.2;
-    let (mut r, mut phi, mut theta) = (10.0, 0.0, -PI / 4.0);
-    while !is_key_down(KeyCode::Escape) {
-        let dt = get_frame_time().max(0.04);
 
-        {
-            if is_key_pressed(KeyCode::Tab) {
-                grabbed ^= true;
-                grab(grabbed);
-            }
-            let scroll = mouse_wheel().1;
-            if scroll != 0.0 {
-                r *= (1.0 + wheel_sens).powf(-mouse_wheel().1);
-            } else if grabbed || is_mouse_button_down(MouseButton::Left) {
-                let delta = mouse_sens * mouse_delta_position() * Vec2::from(screen_size());
-                phi = (phi + delta.x) % (2.0 * PI);
-                theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
-            }
+    'outer: loop {
+        let mut vehicle = Vehicle::new(&model, Vec3::new(4.0, 4.0, 3.0), Quat::IDENTITY);
 
-            let fwd = is_key_down(KeyCode::W) || is_key_down(KeyCode::Up);
-            let bwd = is_key_down(KeyCode::S) || is_key_down(KeyCode::Down);
-            let brake = is_key_down(KeyCode::Space);
-            vehicle.brake(brake || (fwd && bwd));
-            vehicle.accelerate(0.0, 1.0);
-            if !brake {
-                if fwd {
-                    vehicle.accelerate(1.0, 0.1);
-                } else if bwd {
-                    vehicle.accelerate(1.0, -0.1);
-                } else {
-                    vehicle.accelerate(0.0, 0.1);
+        let (mut r, mut phi, mut theta) = (10.0, 0.0, -PI / 4.0);
+        loop {
+            let dt = get_frame_time().max(0.04);
+
+            {
+                if is_key_down(KeyCode::Escape) {
+                    break 'outer;
                 }
+
+                if is_key_pressed(KeyCode::Tab) {
+                    grabbed ^= true;
+                    grab(grabbed);
+                }
+                let scroll = mouse_wheel().1;
+                if scroll != 0.0 {
+                    r *= (1.0 + wheel_sens).powf(-mouse_wheel().1);
+                } else if grabbed || is_mouse_button_down(MouseButton::Left) {
+                    let delta = mouse_sens * mouse_delta_position() * Vec2::from(screen_size());
+                    phi = (phi + delta.x) % (2.0 * PI);
+                    theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
+                }
+
+                let fwd = is_key_down(KeyCode::W) || is_key_down(KeyCode::Up);
+                let bwd = is_key_down(KeyCode::S) || is_key_down(KeyCode::Down);
+                let brake = is_key_down(KeyCode::Space);
+                vehicle.brake(brake || (fwd && bwd));
+                vehicle.accelerate(0.0, 1.0);
+                if !brake {
+                    if fwd {
+                        vehicle.accelerate(1.0, 0.05);
+                    } else if bwd {
+                        vehicle.accelerate(1.0, -0.05);
+                    } else {
+                        vehicle.accelerate(0.0, 1.0);
+                    }
+                }
+                let dir = (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left)) as i32
+                    - (is_key_down(KeyCode::D) || is_key_down(KeyCode::Right)) as i32;
+                vehicle.steer((PI / 6.0) * dir as f32);
             }
-            let dir = (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left)) as i32
-                - (is_key_down(KeyCode::D) || is_key_down(KeyCode::Right)) as i32;
-            vehicle.steer((PI / 6.0) * dir as f32);
-        }
 
-        {
-            Solver.solve_step(&mut (&terrain, &mut vehicle), dt);
-        }
+            {
+                Solver.solve_step(&mut (&terrain, &mut vehicle), dt);
 
-        {
-            let transorm = Quat::from_euler(EulerRot::ZXY, phi, theta, 0.0);
-            let mut camera = Camera3D {
-                target: vehicle.pos(),
-                position: vehicle.pos() + transorm.mul_vec3(Vec3::new(0.0, -r, 0.0)),
-                up: transorm.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
-                ..Default::default()
-            };
-            set_camera(&camera);
-
-            clear_background(color::GRAY);
-
-            if !grabbed {
-                let origin = camera.position;
-                let mouse_pos = camera.matrix().inverse().project_point3(Vec3::from((
-                    mouse_position_local() * Vec2::new(1.0, -1.0),
-                    0.98,
-                )));
-                let mouse_dir = mouse_pos - origin;
-                if let Some((dist, poi, _)) =
-                    terrain.intersect_line(origin, origin + 1e3 * mouse_dir)
-                {
-                    draw_sphere(poi, 0.01 * dist, None, color::RED);
+                if vehicle.pos().z < -100.0 {
+                    break;
                 }
             }
 
-            terrain.draw();
-            vehicle.draw(&mut camera);
+            {
+                let transorm = Quat::from_euler(EulerRot::ZXY, phi, theta, 0.0);
+                let mut camera = Camera3D {
+                    target: vehicle.pos(),
+                    position: vehicle.pos() + transorm.mul_vec3(Vec3::new(0.0, -r, 0.0)),
+                    up: transorm.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
+                    ..Default::default()
+                };
+                if let Some((_, poc, _)) = terrain.intersect_line(camera.position, camera.target) {
+                    camera.position = poc;
+                }
+                set_camera(&camera);
 
-            set_default_camera();
+                clear_background(color::GRAY);
+
+                if !grabbed {
+                    let origin = camera.position;
+                    let mouse_pos = camera.matrix().inverse().project_point3(Vec3::from((
+                        mouse_position_local() * Vec2::new(1.0, -1.0),
+                        0.98,
+                    )));
+                    let mouse_dir = mouse_pos - origin;
+                    if let Some((dist, poi, _)) =
+                        terrain.intersect_line(origin, origin + 1e3 * mouse_dir)
+                    {
+                        draw_sphere(poi, 0.01 * dist, None, color::RED);
+                    }
+                }
+
+                terrain.draw();
+                vehicle.draw(&mut camera);
+
+                set_default_camera();
+            }
+
+            next_frame().await
         }
-
-        next_frame().await
     }
 
     Ok(())
