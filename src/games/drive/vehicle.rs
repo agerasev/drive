@@ -16,6 +16,11 @@ use std::{f32::consts::PI, rc::Rc};
 
 const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -4.0);
 
+/// How fast dry frinction grow depending on speed.
+///
+/// Ideally this should be infinity, but then we cannot solve it by RK4.  
+const DRY_FRICTION_SLOPE: f32 = 1.0;
+
 fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
     Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
 }
@@ -133,7 +138,7 @@ pub struct Wheel {
     common: WheelConfig,
     config: WheelInstanceConfig,
 
-    // axis: Vec3,
+    axis: Vec3,
     rot: Var<Rot2>,
     /// Angular speed
     asp: Var<f32>,
@@ -148,7 +153,7 @@ impl Wheel {
         Self {
             common,
             config,
-            //axis,
+            axis: Vec3::X,
             rot: Var::default(),
             asp: Var::default(),
             dev: 0.0,
@@ -178,12 +183,27 @@ impl Wheel {
             map.transform_point3(self.lower_poc()),
         ) {
             self.dev = self.common.travel - dist;
+
             let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1)
                 - vel_at.dot(map.transform_vector3(Vec3::Z)) * self.common.damping;
-            let force = map
+            let normal_reaction = map
                 .transform_vector3(susp * Vec3::Z)
                 .project_onto_normalized(normal);
-            Some((poc, force))
+
+            let rel_poc = poc - map.transform_point3(self.pos());
+            let vel_at =
+                vel_at + angular_to_linear3(map.transform_vector3(*self.asp * self.axis), rel_poc);
+            let friction = (-vel_at * DRY_FRICTION_SLOPE)
+                .reject_from_normalized(normal)
+                .clamp_length_max(Terrain::DRY_FRICTION)
+                * normal_reaction.length();
+
+            self.asp.add_deriv(
+                torque3(rel_poc, friction).dot(map.transform_vector3(self.axis))
+                    / self.common.moment_of_inertia,
+            );
+
+            Some((poc, normal_reaction + friction))
         } else {
             self.dev = 0.0;
             None
@@ -193,7 +213,7 @@ impl Wheel {
     fn draw(&self, stack: &mut impl TransformStack) {
         let _t = stack.push(Affine3A::from_scale_rotation_translation(
             Vec3::new(self.common.radius, self.common.radius, self.common.width),
-            Quat::from_rotation_y(0.5 * PI),
+            Quat::from_rotation_y(0.5 * PI) * Quat::from_rotation_z(self.rot.angle()),
             self.pos(),
         ));
         draw_mesh(&self.model);
