@@ -218,20 +218,20 @@ impl Wheel {
             })
     }
 
-    fn add_vel_at_poc(&self, vel: Vec3, normal: Vec3) -> Vec3 {
+    fn add_vel_at_poc(&self, outer_vel: Vec3, normal: Vec3) -> Vec3 {
         if let Some(asp) = self.fixed_asp {
             angular_to_linear3(asp * self.axis, -self.common.radius * Vec3::Z)
         } else {
-            -vel.project_onto(self.axis.cross(normal))
+            -outer_vel.project_onto(self.axis.cross(normal))
         }
     }
 
-    fn set_visible_asp(&mut self, vel: Vec3) {
+    fn set_visible_asp(&mut self, outer_vel: Vec3) {
         if let Some(asp) = self.fixed_asp {
             self.visible_asp = asp;
         } else {
             let r = -self.common.radius * Vec3::Z;
-            self.visible_asp = vel.cross(r).dot(self.axis) / self.common.radius.powi(2);
+            self.visible_asp = outer_vel.cross(r).dot(self.axis) / self.common.radius.powi(2);
         }
     }
 
@@ -244,15 +244,20 @@ impl Wheel {
     }
 
     /// Returns force applied
-    fn friction(
+    fn dry_friction(
         &mut self,
         normal_reaction: Vec3,
-        dry_friction: bool,
-        vel_at: Vec3,
-        acc_at: Vec3,
+        first: bool,
+        mut vel_at: Vec3,
+        mut acc_at: Vec3,
         eff_mass: f32,
         dt: f32,
     ) -> Vec3 {
+        if self.fixed_asp.is_none() {
+            let dir = self.axis.cross(normal_reaction).normalize();
+            vel_at = vel_at.reject_from_normalized(dir);
+            acc_at = acc_at.reject_from_normalized(dir);
+        }
         let stiction = -eff_mass * (vel_at / dt + acc_at).reject_from(normal_reaction);
 
         let force_abs = stiction.length();
@@ -260,8 +265,18 @@ impl Wheel {
 
         if force_abs < force_abs_max {
             stiction
-        } else if dry_friction {
+        } else if first {
             stiction * (force_abs_max / force_abs)
+        } else {
+            Vec3::ZERO
+        }
+    }
+
+    const ROLL_FRICTION: f32 = 100.0;
+
+    fn roll_friction(&mut self, normal: Vec3, outer_vel: Vec3) -> Vec3 {
+        if self.fixed_asp.is_none() {
+            -Self::ROLL_FRICTION * outer_vel.project_onto(self.axis.cross(normal))
         } else {
             Vec3::ZERO
         }
@@ -312,10 +327,14 @@ impl Vehicle {
             wheel.axis = Vec3::X;
         }
     }
+
+    /// Vehicle speed (m/s)
+    const SPEED: f32 = 6.0;
+
     pub fn accelerate(&mut self, throttle: f32) {
         // All wheels
         for wheel in &mut self.wheels {
-            wheel.fixed_asp = Some(-throttle * 10.0);
+            wheel.fixed_asp = Some(-throttle * Self::SPEED / wheel.common.radius);
         }
     }
     pub fn steer(&mut self, angle: f32) {
@@ -357,9 +376,9 @@ impl Vehicle {
                 let normal = irot.transform(normal);
                 let poc = wheel.poc();
 
-                let mut vel_at = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
-                wheel.set_visible_asp(vel_at);
-                vel_at += wheel.add_vel_at_poc(vel_at, normal);
+                let outer_vel = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
+                wheel.set_visible_asp(outer_vel);
+                let vel_at = outer_vel + wheel.add_vel_at_poc(outer_vel, normal);
 
                 let force = wheel.normal_reaction(normal, vel_at);
                 *normal_reaction = Some(force);
@@ -378,9 +397,8 @@ impl Vehicle {
                     let normal = normal_reaction.normalize();
                     let poc = wheel.poc();
 
-                    let mut vel_at =
-                        irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
-                    vel_at += wheel.add_vel_at_poc(vel_at, normal);
+                    let outer_vel = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
+                    let vel_at = outer_vel + wheel.add_vel_at_poc(outer_vel, normal);
                     let acc_at = irot.transform(*self.vel.deriv())
                         + angular_to_linear3(*self.rasp.deriv(), poc);
 
@@ -390,8 +408,11 @@ impl Vehicle {
                             + (dir.cross(poc))
                                 .dot(dir.cross(poc) / self.config.principal_moments_of_inertia));
 
-                    let force =
-                        wheel.friction(normal_reaction, i == 0, vel_at, acc_at, eff_mass, dt);
+                    let mut force =
+                        wheel.dry_friction(normal_reaction, i == 0, vel_at, acc_at, eff_mass, dt);
+                    if i == 0 {
+                        force += wheel.roll_friction(normal, outer_vel);
+                    }
 
                     self.vel
                         .add_deriv(self.rot.transform(force) / self.config.mass);

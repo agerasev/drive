@@ -42,9 +42,9 @@ fn sample_height_map<F: Fn(Vec2) -> f32>(f: &F, coord: Vec2) -> Point {
 
 impl Terrain {
     /// Dry friction coefficient.
-    pub const DRY_FRICTION: f32 = 0.5;
+    pub const DRY_FRICTION: f32 = 0.4;
     /// Static friction coefficient.
-    pub const STICTION: f32 = 0.8;
+    pub const STICTION: f32 = Self::DRY_FRICTION;
 
     pub fn from_height_map<F: Fn(Vec2) -> f32>(
         f: F,

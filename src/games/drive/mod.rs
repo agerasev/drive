@@ -47,7 +47,7 @@ pub async fn main() -> Result<(), Error> {
     let terrain = Terrain::from_height_map(
         |c| 8.0 * (1.0 - 1.0 / (1.0 + 0.002 * c.length_squared())),
         64.0,
-        16,
+        24,
         noisy_texture(
             &mut rng,
             256,
@@ -78,7 +78,7 @@ pub async fn main() -> Result<(), Error> {
 
         let (mut r, mut phi, mut theta) = (10.0, 0.0, -PI / 4.0);
         loop {
-            let dt = get_frame_time().max(0.04);
+            let dt = get_frame_time().max(0.04) * 0.5;
 
             {
                 if is_key_down(KeyCode::Escape) {
@@ -109,7 +109,7 @@ pub async fn main() -> Result<(), Error> {
                     if fwd {
                         vehicle.accelerate(1.0);
                     } else if bwd {
-                        vehicle.accelerate(-1.0);
+                        vehicle.accelerate(-0.5);
                     }
                 }
                 let dir = (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left)) as i32
