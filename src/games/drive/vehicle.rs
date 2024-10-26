@@ -167,11 +167,10 @@ pub struct Wheel {
 
     axis: Vec3,
     rot: Var<Rot2>,
-    /// Angular speed
-    asp: Var<f32>,
-    /// Angular acceleration
-    acc: f32,
-    brake: bool,
+    /// Fixed angular speed
+    fixed_asp: Option<f32>,
+    /// Visible angular speed
+    visible_asp: f32,
 
     dev: f32,
 
@@ -185,9 +184,8 @@ impl Wheel {
             config,
             axis: Vec3::X,
             rot: Var::default(),
-            asp: Var::default(),
-            acc: 0.0,
-            brake: false,
+            fixed_asp: None,
+            visible_asp: 0.0,
             dev: 0.0,
             model,
         }
@@ -220,11 +218,20 @@ impl Wheel {
             })
     }
 
-    fn vel_at_poc(&self) -> Vec3 {
-        if !self.brake {
-            angular_to_linear3(*self.asp * self.axis, -self.common.radius * Vec3::Z)
+    fn add_vel_at_poc(&self, vel: Vec3, normal: Vec3) -> Vec3 {
+        if let Some(asp) = self.fixed_asp {
+            angular_to_linear3(asp * self.axis, -self.common.radius * Vec3::Z)
         } else {
-            Vec3::ZERO
+            -vel.project_onto(self.axis.cross(normal))
+        }
+    }
+
+    fn set_visible_asp(&mut self, vel: Vec3) {
+        if let Some(asp) = self.fixed_asp {
+            self.visible_asp = asp;
+        } else {
+            let r = -self.common.radius * Vec3::Z;
+            self.visible_asp = vel.cross(r).dot(self.axis) / self.common.radius.powi(2);
         }
     }
 
@@ -232,16 +239,8 @@ impl Wheel {
     fn normal_reaction(&mut self, normal: Vec3, vel_at: Vec3) -> Vec3 {
         let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1)
             - vel_at.dot(Vec3::Z) * self.common.damping;
-        let force = (susp * Vec3::Z).project_onto_normalized(normal);
 
-        if !self.brake {
-            self.asp.add_deriv(
-                torque3(-self.common.radius * Vec3::Z, force).dot(self.axis)
-                    / self.common.moment_of_inertia,
-            );
-        }
-
-        force
+        (susp * Vec3::Z).project_onto_normalized(normal)
     }
 
     /// Returns force applied
@@ -259,22 +258,13 @@ impl Wheel {
         let force_abs = stiction.length();
         let force_abs_max = Terrain::DRY_FRICTION * normal_reaction.length();
 
-        let force = if force_abs < force_abs_max {
+        if force_abs < force_abs_max {
             stiction
         } else if dry_friction {
             stiction * (force_abs_max / force_abs)
         } else {
             Vec3::ZERO
-        };
-
-        if !self.brake {
-            self.asp.add_deriv(
-                torque3(-self.common.radius * Vec3::Z, force).dot(self.axis)
-                    / self.common.moment_of_inertia,
-            );
         }
-
-        force
     }
 
     fn draw(&self, stack: &mut impl TransformStack) {
@@ -316,11 +306,16 @@ impl Vehicle {
         *self.pos
     }
 
-    pub fn accelerate(&mut self, throttle: f32, transmission: f32) {
+    pub fn reset_controls(&mut self) {
+        for wheel in &mut self.wheels {
+            wheel.fixed_asp = None;
+            wheel.axis = Vec3::X;
+        }
+    }
+    pub fn accelerate(&mut self, throttle: f32) {
         // All wheels
         for wheel in &mut self.wheels {
-            wheel.acc = -(throttle / transmission) * (self.config.max_torque / 4.0)
-                / wheel.common.moment_of_inertia;
+            wheel.fixed_asp = Some(-throttle * 10.0);
         }
     }
     pub fn steer(&mut self, angle: f32) {
@@ -329,10 +324,9 @@ impl Vehicle {
             wheel.axis = Vec3::new(angle.cos(), angle.sin(), 0.0);
         }
     }
-    pub fn brake(&mut self, value: bool) {
+    pub fn brake(&mut self) {
         for wheel in &mut self.wheels {
-            wheel.brake = value;
-            *wheel.asp = 0.0;
+            wheel.fixed_asp = Some(0.0);
         }
     }
 
@@ -348,8 +342,7 @@ impl Vehicle {
             .add_deriv(-self.rasp.cross(inert * *self.rasp) / inert);
 
         for wheel in &mut self.wheels {
-            wheel.rot.add_deriv(*wheel.asp);
-            wheel.asp.add_deriv(wheel.acc);
+            wheel.rot.add_deriv(wheel.visible_asp);
         }
     }
 
@@ -364,9 +357,9 @@ impl Vehicle {
                 let normal = irot.transform(normal);
                 let poc = wheel.poc();
 
-                let vel_at = irot.transform(*self.vel)
-                    + angular_to_linear3(*self.rasp, poc)
-                    + wheel.vel_at_poc();
+                let mut vel_at = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
+                wheel.set_visible_asp(vel_at);
+                vel_at += wheel.add_vel_at_poc(vel_at, normal);
 
                 let force = wheel.normal_reaction(normal, vel_at);
                 *normal_reaction = Some(force);
@@ -385,9 +378,9 @@ impl Vehicle {
                     let normal = normal_reaction.normalize();
                     let poc = wheel.poc();
 
-                    let vel_at = irot.transform(*self.vel)
-                        + angular_to_linear3(*self.rasp, poc)
-                        + wheel.vel_at_poc();
+                    let mut vel_at =
+                        irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
+                    vel_at += wheel.add_vel_at_poc(vel_at, normal);
                     let acc_at = irot.transform(*self.vel.deriv())
                         + angular_to_linear3(*self.rasp.deriv(), poc);
 
@@ -416,7 +409,6 @@ impl Vehicle {
         visitor.apply(&mut self.rasp);
         for wheel in &mut self.wheels {
             visitor.apply(&mut wheel.rot);
-            visitor.apply(&mut wheel.asp);
         }
     }
 

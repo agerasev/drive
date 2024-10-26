@@ -98,18 +98,18 @@ pub async fn main() -> Result<(), Error> {
                     theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
                 }
 
+                vehicle.reset_controls();
                 let fwd = is_key_down(KeyCode::W) || is_key_down(KeyCode::Up);
                 let bwd = is_key_down(KeyCode::S) || is_key_down(KeyCode::Down);
-                let brake = is_key_down(KeyCode::Space);
-                vehicle.brake(brake || (fwd && bwd));
-                vehicle.accelerate(0.0, 1.0);
+                let brake = is_key_down(KeyCode::Space) || (fwd && bwd);
+                if brake {
+                    vehicle.brake();
+                }
                 if !brake {
                     if fwd {
-                        vehicle.accelerate(1.0, 0.05);
+                        vehicle.accelerate(1.0);
                     } else if bwd {
-                        vehicle.accelerate(1.0, -0.05);
-                    } else {
-                        vehicle.accelerate(0.0, 1.0);
+                        vehicle.accelerate(-1.0);
                     }
                 }
                 let dir = (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left)) as i32
