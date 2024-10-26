@@ -62,7 +62,7 @@ pub trait Visitor {
 }
 
 pub trait System {
-    fn compute_derivs(&mut self);
+    fn compute_derivs(&mut self, dt: f32);
     fn visit_vars<V: Visitor>(&mut self, visitor: &mut V);
 }
 
@@ -95,28 +95,40 @@ struct Rk4Step {
     dt: f32,
 }
 
+impl Rk4Step {
+    fn dt(&self) -> f32 {
+        match self.stage {
+            0 => self.dt / 2.0,
+            1 => self.dt / 2.0,
+            2 => self.dt,
+            3 => self.dt,
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Visitor for Rk4Step {
     fn apply<P: Parameter>(&mut self, p: &mut Var<P>) {
         let x = &mut p.value;
         let dx = &mut p.deriv;
-        let dt = self.dt;
+        let dt = self.dt();
 
         match self.stage {
             0 => {
                 (x.1, dx.1) = (x.0, dx.0);
-                x.0 = x.1.step(dx.0, dt / 2.0);
+                x.0 = x.1.step(dx.0, dt);
             }
             1 => {
                 dx.1 = dx.1 + dx.0 * 2.0;
-                x.0 = x.1.step(dx.0, dt / 2.0);
+                x.0 = x.1.step(dx.0, dt);
             }
             2 => {
                 dx.1 = dx.1 + dx.0 * 2.0;
                 x.0 = x.1.step(dx.0, dt);
             }
             3 => {
-                dx.1 = dx.1 + dx.0;
-                x.0 = x.1.step(dx.1, dt / 6.0);
+                dx.1 = (dx.1 + dx.0) * (1.0 / 6.0);
+                x.0 = x.1.step(dx.1, dt);
             }
             _ => unreachable!(),
         };
@@ -128,8 +140,9 @@ impl Visitor for Rk4Step {
 impl Solver {
     pub fn solve_step<S: System>(&self, system: &mut S, dt: f32) {
         for stage in 0..4 {
-            system.compute_derivs();
-            system.visit_vars(&mut Rk4Step { stage, dt });
+            let mut step = Rk4Step { stage, dt };
+            system.compute_derivs(step.dt());
+            system.visit_vars(&mut step);
         }
     }
 }

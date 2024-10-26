@@ -16,11 +16,6 @@ use std::{f32::consts::PI, rc::Rc};
 
 const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
 
-/// How fast dry frinction grow depending on speed.
-///
-/// Ideally this should be infinity, but then we cannot solve it by RK4.  
-const DRY_FRICTION_SLOPE: f32 = 0.5;
-
 fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
     Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
 }
@@ -198,8 +193,11 @@ impl Wheel {
         }
     }
 
-    pub fn pos(&self) -> Vec3 {
+    pub fn center(&self) -> Vec3 {
         self.config.center + self.dev * Vec3::Z
+    }
+    pub fn poc(&self) -> Vec3 {
+        self.center() - self.common.radius * Vec3::Z
     }
     pub fn lower_poc(&self) -> Vec3 {
         self.config.center - self.common.radius * Vec3::Z
@@ -208,49 +206,75 @@ impl Wheel {
         self.config.center + (self.common.travel - self.common.radius) * Vec3::Z
     }
 
-    /// Returns point of contact and force applied
-    fn interact_with_terrain(
-        &mut self,
-        map: Affine3A,
-        mut vel_at: Vec3,
-        terrain: &Terrain,
-    ) -> Option<(Vec3, Vec3)> {
-        if let Some((dist, poc, normal)) = terrain.intersect_line(
-            map.transform_point3(self.upper_poc()),
-            map.transform_point3(self.lower_poc()),
-        ) {
-            self.dev = self.common.travel - dist;
+    /// Returns point of contact and normal
+    fn contact_terrain(&mut self, map: Affine3A, terrain: &Terrain) -> Option<(Vec3, Vec3)> {
+        self.dev = 0.0;
+        terrain
+            .intersect_line(
+                map.transform_point3(self.upper_poc()),
+                map.transform_point3(self.lower_poc()),
+            )
+            .map(|(dist, poc, normal)| {
+                self.dev = self.common.travel - dist;
+                (poc, normal)
+            })
+    }
 
-            let wheel_r = -self.common.radius * map.transform_vector3(Vec3::Z);
-            if !self.brake {
-                vel_at += angular_to_linear3(map.transform_vector3(*self.asp * self.axis), wheel_r);
-            }
-
-            let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1)
-                - vel_at.dot(map.transform_vector3(Vec3::Z)) * self.common.damping;
-            let normal_reaction = map
-                .transform_vector3(susp * Vec3::Z)
-                .project_onto_normalized(normal);
-
-            let friction = (-vel_at * DRY_FRICTION_SLOPE)
-                .reject_from_normalized(normal)
-                .clamp_length_max(Terrain::DRY_FRICTION)
-                * normal_reaction.length();
-
-            let total_force = normal_reaction + friction;
-
-            if !self.brake {
-                self.asp.add_deriv(
-                    torque3(wheel_r, total_force).dot(map.transform_vector3(self.axis))
-                        / self.common.moment_of_inertia,
-                );
-            }
-
-            Some((poc, total_force))
+    fn vel_at_poc(&self) -> Vec3 {
+        if !self.brake {
+            angular_to_linear3(*self.asp * self.axis, -self.common.radius * Vec3::Z)
         } else {
-            self.dev = 0.0;
-            None
+            Vec3::ZERO
         }
+    }
+
+    /// Returns force applied
+    fn normal_reaction(&mut self, normal: Vec3, vel_at: Vec3) -> Vec3 {
+        let susp = self.dev * (self.common.hardness.0 + self.dev * self.common.hardness.1)
+            - vel_at.dot(Vec3::Z) * self.common.damping;
+        let force = (susp * Vec3::Z).project_onto_normalized(normal);
+
+        if !self.brake {
+            self.asp.add_deriv(
+                torque3(-self.common.radius * Vec3::Z, force).dot(self.axis)
+                    / self.common.moment_of_inertia,
+            );
+        }
+
+        force
+    }
+
+    /// Returns force applied
+    fn friction(
+        &mut self,
+        normal_reaction: Vec3,
+        dry_friction: bool,
+        vel_at: Vec3,
+        acc_at: Vec3,
+        eff_mass: f32,
+        dt: f32,
+    ) -> Vec3 {
+        let stiction = -eff_mass * (vel_at / dt + acc_at).reject_from(normal_reaction);
+
+        let force_abs = stiction.length();
+        let force_abs_max = Terrain::DRY_FRICTION * normal_reaction.length();
+
+        let force = if force_abs < force_abs_max {
+            stiction
+        } else if dry_friction {
+            stiction * (force_abs_max / force_abs)
+        } else {
+            Vec3::ZERO
+        };
+
+        if !self.brake {
+            self.asp.add_deriv(
+                torque3(-self.common.radius * Vec3::Z, force).dot(self.axis)
+                    / self.common.moment_of_inertia,
+            );
+        }
+
+        force
     }
 
     fn draw(&self, stack: &mut impl TransformStack) {
@@ -259,7 +283,7 @@ impl Wheel {
             Quat::from_rotation_z(self.axis.y.atan2(self.axis.x))
                 * Quat::from_rotation_y(0.5 * PI)
                 * Quat::from_rotation_z(self.rot.angle()),
-            self.pos(),
+            self.center(),
         ));
         draw_mesh(&self.model);
     }
@@ -329,17 +353,58 @@ impl Vehicle {
         }
     }
 
-    pub fn interact_with_terrain(&mut self, terrain: &Terrain) {
+    pub fn interact_with_terrain(&mut self, terrain: &Terrain, dt: f32) {
         let map = Affine3A::from_rotation_translation(Quat::from(*self.rot), *self.pos);
+        let irot = self.rot.inverse();
 
-        for wheel in self.wheels.iter_mut() {
-            let vel_at =
-                *self.vel + (self.rot).transform(angular_to_linear3(*self.rasp, wheel.upper_poc()));
-            if let Some((poc, force)) = wheel.interact_with_terrain(map, vel_at, terrain) {
-                self.vel.add_deriv(force / self.config.mass);
-                self.rasp.add_deriv(self.rot.inverse().transform(
-                    torque3(poc - *self.pos, force) / self.config.principal_moments_of_inertia,
-                ));
+        let mut normal_reactions = [None::<Vec3>; 4];
+        for (wheel, normal_reaction) in self.wheels.iter_mut().zip(normal_reactions.iter_mut()) {
+            if let Some((_poc, normal)) = wheel.contact_terrain(map, terrain) {
+                // Use only local coordinates
+                let normal = irot.transform(normal);
+                let poc = wheel.poc();
+
+                let vel_at = irot.transform(*self.vel)
+                    + angular_to_linear3(*self.rasp, poc)
+                    + wheel.vel_at_poc();
+
+                let force = wheel.normal_reaction(normal, vel_at);
+                *normal_reaction = Some(force);
+
+                self.vel
+                    .add_deriv(self.rot.transform(force) / self.config.mass);
+                self.rasp
+                    .add_deriv(torque3(poc, force) / self.config.principal_moments_of_inertia);
+            }
+        }
+
+        for i in 0..2 {
+            for (wheel, normal_reaction) in self.wheels.iter_mut().zip(normal_reactions) {
+                if let Some(normal_reaction) = normal_reaction {
+                    // Use only local coordinates
+                    let normal = normal_reaction.normalize();
+                    let poc = wheel.poc();
+
+                    let vel_at = irot.transform(*self.vel)
+                        + angular_to_linear3(*self.rasp, poc)
+                        + wheel.vel_at_poc();
+                    let acc_at = irot.transform(*self.vel.deriv())
+                        + angular_to_linear3(*self.rasp.deriv(), poc);
+
+                    let dir = vel_at.reject_from_normalized(normal).normalize_or_zero();
+                    let eff_mass = 1.0
+                        / (1.0 / self.config.mass
+                            + (dir.cross(poc))
+                                .dot(dir.cross(poc) / self.config.principal_moments_of_inertia));
+
+                    let force =
+                        wheel.friction(normal_reaction, i == 0, vel_at, acc_at, eff_mass, dt);
+
+                    self.vel
+                        .add_deriv(self.rot.transform(force) / self.config.mass);
+                    self.rasp
+                        .add_deriv(torque3(poc, force) / self.config.principal_moments_of_inertia);
+                }
             }
         }
     }

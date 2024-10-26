@@ -29,9 +29,9 @@ use terrain::{noisy_texture, Terrain};
 use vehicle::VehicleModel;
 
 impl System for (&Terrain, &mut Vehicle) {
-    fn compute_derivs(&mut self) {
+    fn compute_derivs(&mut self, dt: f32) {
         self.1.compute_basic_derivs();
-        self.1.interact_with_terrain(self.0);
+        self.1.interact_with_terrain(self.0, dt);
     }
 
     fn visit_vars<V: Visitor>(&mut self, visitor: &mut V) {
