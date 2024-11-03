@@ -5,6 +5,7 @@ use self::vehicle::Vehicle;
 use crate::{
     model::load_model,
     numerical::{Solver, System, Visitor},
+    texture::noisy_texture,
 };
 use anyhow::Error;
 use defer::defer;
@@ -25,7 +26,7 @@ use macroquad::{
 };
 use rand::{rngs::SmallRng, SeedableRng};
 use std::{f32::consts::PI, future::Future, pin::Pin};
-use terrain::{noisy_texture, Terrain};
+use terrain::Terrain;
 use vehicle::VehicleModel;
 
 impl System for (&Terrain, &mut Vehicle) {
