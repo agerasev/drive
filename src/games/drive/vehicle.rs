@@ -11,24 +11,16 @@ use macroquad::{
     texture::Texture2D,
     ui::Vertex,
 };
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use std::{f32::consts::PI, rc::Rc};
 
 const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
-
-fn de_vec2<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec2, D::Error> {
-    Ok(Vec2::from(<[f32; 2]>::deserialize(deserializer)?))
-}
-fn de_vec3<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec3, D::Error> {
-    Ok(Vec3::from(<[f32; 3]>::deserialize(deserializer)?))
-}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct VehicleConfig {
     /// Mass (kg)
     pub mass: f32,
     /// Principal moments of inertia (kg*m^2)
-    #[serde(deserialize_with = "de_vec3")]
     pub principal_moments_of_inertia: Vec3,
 
     /// Maximum engine power (W)
@@ -59,7 +51,6 @@ pub struct WheelConfig {
     /// Maximum wheel deviation from lower position to upper position
     pub travel: f32,
 
-    #[serde(deserialize_with = "de_vec2")]
     pub texture_center: Vec2,
     pub texture_radius: f32,
 }
@@ -67,7 +58,6 @@ pub struct WheelConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct WheelInstanceConfig {
     /// Position of equilibrium (when no force apllied, lower postion)
-    #[serde(deserialize_with = "de_vec3")]
     pub center: Vec3,
 }
 
