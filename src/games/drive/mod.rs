@@ -3,6 +3,7 @@ mod vehicle;
 
 use self::vehicle::Vehicle;
 use crate::{
+    compat::mouse_wheel_clamped,
     model::load_model,
     numerical::{Solver, System, Visitor},
     texture::noisy_texture,
@@ -16,7 +17,7 @@ use macroquad::{
     file::load_file,
     input::{
         is_key_down, is_key_pressed, is_mouse_button_down, mouse_delta_position,
-        mouse_position_local, mouse_wheel, set_cursor_grab, show_mouse, KeyCode, MouseButton,
+        mouse_position_local, set_cursor_grab, show_mouse, KeyCode, MouseButton,
     },
     math::Rect,
     miniquad::window::screen_size,
@@ -42,7 +43,7 @@ impl System for (&Terrain, &mut Vehicle) {
 }
 
 pub async fn main() -> Result<(), Error> {
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = SmallRng::seed_from_u64(0xdeadbeef);
     set_default_filter_mode(FilterMode::Linear);
 
     let terrain = Terrain::from_height_map(
@@ -90,10 +91,11 @@ pub async fn main() -> Result<(), Error> {
                     grabbed ^= true;
                     grab(grabbed);
                 }
-                let scroll = mouse_wheel().1;
+                let scroll = mouse_wheel_clamped().1;
                 if scroll != 0.0 {
-                    r *= (1.0 + wheel_sens).powf(-mouse_wheel().1);
+                    r *= (1.0 + wheel_sens).powf(-scroll);
                 } else if grabbed || is_mouse_button_down(MouseButton::Left) {
+                    // On some platforms scroll affects mouse delta
                     let delta = mouse_sens * mouse_delta_position() * Vec2::from(screen_size());
                     phi = (phi + delta.x) % (2.0 * PI);
                     theta = (theta + delta.y).clamp(-0.5 * PI, 0.5 * PI);
