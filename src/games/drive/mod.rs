@@ -9,6 +9,7 @@ use crate::{
 };
 use anyhow::Error;
 use defer::defer;
+use glam::{EulerRot, Quat, Vec2, Vec3};
 use macroquad::{
     camera::{set_camera, set_default_camera, Camera, Camera3D},
     color,
@@ -17,12 +18,12 @@ use macroquad::{
         is_key_down, is_key_pressed, is_mouse_button_down, mouse_delta_position,
         mouse_position_local, mouse_wheel, set_cursor_grab, show_mouse, KeyCode, MouseButton,
     },
-    math::{EulerRot, Quat, Rect, Vec2, Vec3},
+    math::Rect,
     miniquad::window::screen_size,
     models::draw_sphere,
     texture::{load_texture, set_default_filter_mode, FilterMode},
-    time::get_frame_time,
-    window::{clear_background, next_frame},
+    time::{get_frame_time, get_time},
+    window::{clear_background, next_frame, screen_height},
 };
 use rand::{rngs::SmallRng, SeedableRng};
 use std::{f32::consts::PI, future::Future, pin::Pin};
@@ -42,7 +43,6 @@ impl System for (&Terrain, &mut Vehicle) {
 
 pub async fn main() -> Result<(), Error> {
     let mut rng = SmallRng::from_entropy();
-
     set_default_filter_mode(FilterMode::Linear);
 
     let terrain = Terrain::from_height_map(
@@ -127,11 +127,11 @@ pub async fn main() -> Result<(), Error> {
             }
 
             {
-                let transorm = Quat::from_euler(EulerRot::ZXY, phi, theta, 0.0);
+                let transform = Quat::from_euler(EulerRot::ZXY, phi, theta, 0.0);
                 let mut camera = Camera3D {
                     target: vehicle.pos(),
-                    position: vehicle.pos() + transorm.mul_vec3(Vec3::new(0.0, -r, 0.0)),
-                    up: transorm.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
+                    position: vehicle.pos() + transform.mul_vec3(Vec3::new(0.0, -r, 0.0)),
+                    up: transform.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
                     ..Default::default()
                 };
                 if let Some((_, poc, _)) = terrain.intersect_line(camera.position, camera.target) {
@@ -168,11 +168,20 @@ pub async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-pub struct Game {}
+pub struct Game {
+    vehicle: VehicleModel,
+}
 
 impl Game {
     pub async fn new() -> Result<Self, Error> {
-        Ok(Self {})
+        set_default_filter_mode(FilterMode::Linear);
+        Ok(Self {
+            vehicle: VehicleModel::new(
+                serde_json::from_slice(&load_file("l200.json").await?)?,
+                load_model("l200.obj").await?,
+                load_texture("l200.png").await?,
+            ),
+        })
     }
 }
 
@@ -181,7 +190,25 @@ impl crate::Game for Game {
         "Машина".to_owned()
     }
 
-    fn draw_preview(&self, _rect: Rect) {}
+    fn draw_preview(&self, rect: Rect) {
+        let vehicle = Vehicle::new(&self.vehicle, Vec3::new(4.0, 4.0, 3.0), Quat::IDENTITY);
+        let transform = Quat::from_euler(EulerRot::ZXY, PI - 0.1 * get_time() as f32, -0.5, 0.0);
+        let mut camera = Camera3D {
+            target: vehicle.pos(),
+            position: vehicle.pos() + transform.mul_vec3(Vec3::new(0.0, -8.0, 0.0)),
+            up: transform.mul_vec3(Vec3::new(0.0, 0.0, 1.0)),
+            viewport: Some((
+                rect.x as i32,
+                (screen_height() - rect.bottom()) as i32,
+                rect.w as i32,
+                rect.h as i32,
+            )),
+            aspect: Some(rect.w / rect.h),
+            ..Default::default()
+        };
+        set_camera(&camera);
+        vehicle.draw(&mut camera)
+    }
 
     fn launch(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
         Box::pin(main())
