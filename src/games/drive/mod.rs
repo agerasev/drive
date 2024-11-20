@@ -27,9 +27,9 @@ use macroquad::{
     window::{clear_background, next_frame, screen_height},
 };
 use rand::{rngs::SmallRng, SeedableRng};
-use std::{f32::consts::PI, future::Future, pin::Pin};
+use std::{f32::consts::PI, future::Future, pin::Pin, rc::Rc};
 use terrain::Terrain;
-use vehicle::VehicleModel;
+use vehicle::{load_wheel, VehicleModel};
 
 impl System for (&Terrain, &mut Vehicle) {
     fn compute_derivs(&mut self, dt: f32) {
@@ -58,10 +58,12 @@ pub async fn main() -> Result<(), Error> {
             Vec3::new(0.25, 0.25, 0.25),
         ),
     );
+    let wheel = Rc::new(load_wheel().await?);
     let model = VehicleModel::new(
-        serde_json::from_slice(&load_file("l200.json").await?)?,
-        load_model("l200.obj").await?,
-        load_texture("l200.png").await?,
+        serde_json::from_slice(&load_file("logan/config.json").await?)?,
+        load_model("logan/model.obj").await?,
+        load_texture("logan/color.png").await?,
+        wheel,
     );
 
     fn grab(state: bool) {
@@ -179,9 +181,10 @@ impl Game {
         set_default_filter_mode(FilterMode::Linear);
         Ok(Self {
             vehicle: VehicleModel::new(
-                serde_json::from_slice(&load_file("l200.json").await?)?,
-                load_model("l200.obj").await?,
-                load_texture("l200.png").await?,
+                serde_json::from_slice(&load_file("l200/config.json").await?)?,
+                load_model("l200/model.obj").await?,
+                load_texture("l200/color.png").await?,
+                Rc::new(load_wheel().await?),
             ),
         })
     }

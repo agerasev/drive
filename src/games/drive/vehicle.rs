@@ -5,10 +5,11 @@ use crate::{
     numerical::{Var, Visitor},
     physics::{angular_to_linear3, torque3},
 };
+use anyhow::Result;
 use macroquad::{
     math::{Affine3A, Quat, Vec2, Vec3, Vec4},
     models::{draw_mesh, Mesh},
-    texture::Texture2D,
+    texture::{load_texture, Texture2D},
     ui::Vertex,
 };
 use serde::Deserialize;
@@ -50,23 +51,17 @@ pub struct WheelConfig {
 
     /// Maximum wheel deviation from lower position to upper position
     pub travel: f32,
-
-    pub texture_center: Vec2,
-    pub texture_radius: f32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct WheelInstanceConfig {
     /// Position of equilibrium (when no force apllied, lower postion)
     pub center: Vec3,
+    /// Does engine moment is transmitted to this wheel
+    pub drive: bool,
 }
 
-pub fn make_wheel_model(
-    n_vertices: usize,
-    tex_pos: Vec2,
-    tex_rad: f32,
-    texture: Texture2D,
-) -> Mesh {
+fn make_wheel_mesh(n_vertices: usize, tex_pos: Vec2, tex_rad: f32, texture: Texture2D) -> Mesh {
     let uv_pos = tex_pos / texture.size();
     let uv_rad = Vec2::splat(tex_rad) / texture.size();
     Mesh {
@@ -111,27 +106,34 @@ pub fn make_wheel_model(
     }
 }
 
+pub async fn load_wheel() -> Result<Mesh> {
+    Ok(make_wheel_mesh(
+        32,
+        Vec2::new(128.0, 128.0),
+        128.0,
+        load_texture("wheel/color.png").await?,
+    ))
+}
+
 pub struct VehicleModel {
     config: VehicleConfig,
 
-    wheel_model: Rc<Mesh>,
+    wheel: Rc<Mesh>,
     model: Rc<Mesh>,
 }
 
 impl VehicleModel {
-    pub fn new(config: VehicleConfig, mut model: Mesh, texture: Texture2D) -> Self {
+    pub fn new(
+        config: VehicleConfig,
+        mut model: Mesh,
+        texture: Texture2D,
+        wheel: Rc<Mesh>,
+    ) -> Self {
         model.texture = Some(texture.clone());
-        let wheel_model = Rc::new(make_wheel_model(
-            32,
-            config.wheel_common.texture_center,
-            config.wheel_common.texture_radius,
-            texture,
-        ));
         Self {
             config: config.clone(),
-
-            wheel_model,
             model: Rc::new(model),
+            wheel,
         }
     }
 }
@@ -295,13 +297,11 @@ impl Vehicle {
             vel: Var::default(),
             rasp: Var::default(),
 
-            wheels: model.config.wheels.clone().map(|wc| {
-                Wheel::new(
-                    model.config.wheel_common.clone(),
-                    wc,
-                    model.wheel_model.clone(),
-                )
-            }),
+            wheels: model
+                .config
+                .wheels
+                .clone()
+                .map(|wc| Wheel::new(model.config.wheel_common.clone(), wc, model.wheel.clone())),
 
             model: model.model.clone(),
         }
@@ -322,9 +322,10 @@ impl Vehicle {
     const SPEED: f32 = 6.0;
 
     pub fn accelerate(&mut self, throttle: f32) {
-        // All wheels
         for wheel in &mut self.wheels {
-            wheel.fixed_asp = Some(-throttle * Self::SPEED / wheel.common.radius);
+            if wheel.config.drive {
+                wheel.fixed_asp = Some(-throttle * Self::SPEED / wheel.common.radius);
+            }
         }
     }
     pub fn steer(&mut self, angle: f32) {
