@@ -1,4 +1,4 @@
-use super::terrain::Terrain;
+use super::{pipeline::Pipeline, terrain::Terrain};
 use crate::{
     algebra::{Rot2, Rot3},
     model::TransformStack,
@@ -274,7 +274,7 @@ impl Wheel {
         }
     }
 
-    fn draw(&self, stack: &mut impl TransformStack) {
+    fn draw(&self, stack: &mut impl TransformStack, pipeline: Option<&Pipeline>) {
         let _t = stack.push(Affine3A::from_scale_rotation_translation(
             Vec3::new(self.common.radius, self.common.radius, self.common.width),
             Quat::from_rotation_z(self.axis.y.atan2(self.axis.x))
@@ -282,6 +282,14 @@ impl Wheel {
                 * Quat::from_rotation_z(self.rot.angle()),
             self.center(),
         ));
+
+        let _p = pipeline.map(|p| {
+            p.activate(
+                &self.model.texture.as_ref().unwrap(),
+                &self.model.texture.as_ref().unwrap(),
+            )
+        });
+
         draw_mesh(&self.model);
     }
 }
@@ -424,16 +432,24 @@ impl Vehicle {
         }
     }
 
-    pub fn draw(&self, stack: &mut impl TransformStack) {
+    pub fn draw(&self, stack: &mut impl TransformStack, pipeline: Option<&Pipeline>) {
         let mut local = stack.push(Affine3A::from_rotation_translation(
             Quat::from(*self.rot),
             *self.pos,
         ));
 
-        draw_mesh(&self.model);
+        {
+            let _p = pipeline.as_ref().map(|p| {
+                p.activate(
+                    &self.model.texture.as_ref().unwrap(),
+                    &self.model.texture.as_ref().unwrap(),
+                )
+            });
+            draw_mesh(&self.model);
+        }
 
         for wheel in &self.wheels {
-            wheel.draw(&mut local);
+            wheel.draw(&mut local, pipeline);
         }
     }
 }

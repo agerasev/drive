@@ -1,3 +1,4 @@
+mod pipeline;
 mod terrain;
 mod vehicle;
 
@@ -26,6 +27,7 @@ use macroquad::{
     time::{get_frame_time, get_time},
     window::{clear_background, next_frame, screen_height},
 };
+use pipeline::Pipeline;
 use rand::{rngs::SmallRng, SeedableRng};
 use std::{f32::consts::PI, future::Future, pin::Pin, rc::Rc};
 use terrain::Terrain;
@@ -65,6 +67,8 @@ pub async fn main() -> Result<(), Error> {
         load_texture("logan/color.png").await?,
         wheel,
     );
+
+    let pipeline = Pipeline::new()?;
 
     fn grab(state: bool) {
         show_mouse(!state);
@@ -160,7 +164,7 @@ pub async fn main() -> Result<(), Error> {
                 }
 
                 terrain.draw();
-                vehicle.draw(&mut camera);
+                vehicle.draw(&mut camera, Some(&pipeline));
 
                 set_default_camera();
             }
@@ -212,7 +216,7 @@ impl crate::Game for Game {
             ..Default::default()
         };
         set_camera(&camera);
-        vehicle.draw(&mut camera)
+        vehicle.draw(&mut camera, None)
     }
 
     fn launch(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
