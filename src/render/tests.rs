@@ -99,7 +99,9 @@ fn both_vehicle_assets_render_with_shared_depth() {
             let mut orbit = Orbit::default();
             orbit.rotate(glam::Vec2::new(view as f32 * 1200.0, 0.0));
             let mut target = Offscreen::new(&gfx, (800, 450));
-            let camera = Camera::new(&gfx, orbit.view(car.pos(), &terrain, 800.0 / 450.0));
+            let (matrix, eye) = orbit.view(car.pos(), &terrain, 800.0 / 450.0);
+            assets.update_lighting(eye).unwrap();
+            let camera = Camera::new(&gfx, matrix);
             let mut scene = Scene::default();
             assets.draw_vehicle(&car, model, &mut scene);
             target.clear(color::BLACK);
@@ -145,17 +147,80 @@ fn both_vehicle_assets_render_with_shared_depth() {
                 differences <= 32,
                 "model {model}, view {view}: draw order changed {differences} pixels"
             );
-            if let Some(dir) = std::env::var_os("DRIVE_RENDER_OUTPUT") {
-                use std::io::Write;
-                let mut file = std::fs::File::create(
-                    std::path::Path::new(&dir).join(format!("drive-{model}-{view}.ppm")),
-                )
-                .unwrap();
-                file.write_all(b"P6\n800 450\n255\n").unwrap();
-                for pixel in forward.as_chunks::<4>().0.iter() {
-                    file.write_all(&pixel[..3]).unwrap();
-                }
-            }
+            save_image(&format!("drive-{model}-{view}"), target.size(), &forward);
         }
     }
+}
+
+fn save_image(name: &str, (width, height): (u32, u32), pixels: &[u8]) {
+    if let Some(dir) = std::env::var_os("DRIVE_RENDER_OUTPUT") {
+        use std::io::Write;
+        let mut file =
+            std::fs::File::create(std::path::Path::new(&dir).join(format!("{name}.ppm"))).unwrap();
+        write!(file, "P6\n{width} {height}\n255\n").unwrap();
+        for pixel in pixels.as_chunks::<4>().0 {
+            file.write_all(&pixel[..3]).unwrap();
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a GPU adapter; run with --ignored"]
+fn wheel_normal_map_shades_face_and_tread() {
+    use super::*;
+    use glam::{Affine3A, Vec3};
+    use wgame::gfx::Camera;
+    let gfx = graphics();
+    let lib = Library::new(&gfx);
+    let color_map = texture(&lib, include_bytes!("../../assets/wheel/color.png")).unwrap();
+    let normal_map = texture(&lib, include_bytes!("../../assets/wheel/normal.png")).unwrap();
+    let eye = Vec3::new(2.0, -3.0, 3.0);
+    let lighting = Lighting::new(
+        lib.shapes(),
+        lib.texturing(),
+        LightParameters {
+            direction: Vec3::new(-0.5, -1.0, 1.0),
+            eye,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let view = glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 20.0)
+        * glam::camera::rh::view::look_at_mat4(eye, Vec3::ZERO, Vec3::Z);
+    let camera = Camera::new(&gfx, view);
+    let mut target = Offscreen::new(&gfx, (512, 512));
+    let mesh =
+        wheel_mesh(&lib, &color_map).transform(Affine3A::from_scale(Vec3::new(1.0, 1.0, 0.6)));
+    let render = |target: &mut Offscreen, normal| {
+        let material = lighting
+            .material(
+                normal,
+                MaterialSettings {
+                    specular: 0.08,
+                    shininess: 24.0,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let mut scene = Scene::default();
+        scene.add(&mesh.with_material(&material));
+        target.clear(color::BLACK);
+        target.render(&camera, &scene.bake());
+        pixels(target)
+    };
+    let flat = render(&mut target, None);
+    let mapped = render(&mut target, Some(&normal_map));
+    let changed = flat
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(mapped.as_chunks::<4>().0.iter())
+        .filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(a, b)| a.abs_diff(*b) > 5))
+        .count();
+    assert!(
+        changed > 2000,
+        "normal mapping changed only {changed} pixels"
+    );
+    save_image("wheel-flat", target.size(), &flat);
+    save_image("wheel-normal", target.size(), &mapped);
 }

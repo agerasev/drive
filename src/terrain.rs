@@ -4,7 +4,7 @@ use glam::{Vec2, Vec3};
 pub struct TerrainVertex {
     pub position: Vec3,
     pub uv: Vec2,
-    pub shade: f32,
+    pub normal: Vec3,
 }
 pub struct Terrain {
     pub vertices: Vec<TerrainVertex>,
@@ -55,7 +55,7 @@ impl Terrain {
                 vertices.push(TerrainVertex {
                     position: point.pos,
                     uv,
-                    shade: point.normal.z,
+                    normal: point.normal,
                 });
                 if ix != 0 && iy != 0 {
                     let n = points.len();

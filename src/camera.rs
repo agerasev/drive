@@ -25,7 +25,7 @@ impl Orbit {
     pub fn zoom(&mut self, scroll: f32) {
         self.distance = (self.distance * (-0.2 * scroll.clamp(-1.0, 1.0)).exp()).clamp(1.0, 100.0);
     }
-    pub fn view(&self, target: Vec3, terrain: &Terrain, aspect: f32) -> Mat4 {
+    pub fn view(&self, target: Vec3, terrain: &Terrain, aspect: f32) -> (Mat4, Vec3) {
         let rotation = Quat::from_rotation_z(self.azimuth) * Quat::from_rotation_x(self.elevation);
         let wanted = target + rotation * Vec3::new(0.0, -self.distance, 0.0);
         // Trace out from the target so the first surface blocks the camera even
@@ -35,7 +35,10 @@ impl Orbit {
         } else {
             wanted
         };
-        glam::camera::rh::proj::directx::perspective(1.0, aspect, 0.05, 1000.0)
-            * glam::camera::rh::view::look_at_mat4(position, target, rotation * Vec3::Z)
+        (
+            glam::camera::rh::proj::directx::perspective(1.0, aspect, 0.05, 1000.0)
+                * glam::camera::rh::view::look_at_mat4(position, target, rotation * Vec3::Z),
+            position,
+        )
     }
 }

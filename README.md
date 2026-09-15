@@ -49,7 +49,11 @@ inertia in the asset configs are not yet simulated. There is no chassis collisio
 
 Models use wgame's shared textured meshes, scene batching, camera and depth
 attachment. Spheres and cylinders come from its optional `wgame-gfx-3d` crate.
-The original unlit car textures and height-based terrain shading are retained.
+Ambient and directional light shade the imported car normals and terrain normals.
+Blinn–Phong highlights follow the camera. Wheels use the existing tangent-space
+normal map; car bodies and terrain use their geometry normals. Color textures
+are decoded from sRGB for lighting, while normal-map RGB remains unconverted data.
+The sun and material settings live in `src/render.rs`. Cast shadows are not simulated.
 
 ## Checks
 

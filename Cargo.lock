@@ -2738,8 +2738,16 @@ dependencies = [
 name = "wgame-gfx-3d"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "bytemuck",
  "glam",
+ "thiserror 2.0.20",
+ "wgame-gfx",
  "wgame-gfx-shapes",
+ "wgame-gfx-texture",
+ "wgame-image",
+ "wgame-shader",
+ "wgpu",
 ]
 
 [[package]]

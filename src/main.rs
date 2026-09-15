@@ -167,10 +167,9 @@ async fn main(mut window: Window<'_>) -> Result<()> {
             car = spawn(model)?;
         }
         let (width, height) = frame.size();
-        let camera = Camera::new(
-            lib.state(),
-            orbit.view(car.pos(), &terrain, width as f32 / height as f32),
-        );
+        let (view, eye) = orbit.view(car.pos(), &terrain, width as f32 / height as f32);
+        assets.update_lighting(eye)?;
+        let camera = Camera::new(lib.state(), view);
         frame.clear(wgame::rgb::Rgb::new(0.5_f32, 0.5, 0.5));
         frame.render(&camera, &assets.terrain);
         let mut scene = Scene::default();
