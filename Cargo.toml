@@ -1,0 +1,24 @@
+[package]
+name = "drive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+macroquad = { version = "0.4.13", features = ["glam-serde"] }
+futures = "0.3.31"
+rand = { version = "0.8.5", default-features = false, features = [
+    "alloc",
+    "small_rng",
+] }
+rand_distr = { version = "0.4.3", default-features = false }
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+tobj = { version = "4.0.2", default-features = false }
+anyhow = "1.0.89"
+derive_more = { version = "1.0.0", features = ["full"] }
+defer = "0.2.1"
+itertools = "0.13.0"
+glam = { version = "0.27.0", features = ["rand"] }
+
+[dev-dependencies]
+approx = "0.5.1"
