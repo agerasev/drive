@@ -1,24 +1,25 @@
 [package]
 name = "drive"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[features]
+default = ["desktop"]
+desktop = ["wgame/desktop"]
+web = ["wgame/web"]
 
 [dependencies]
-macroquad = { version = "0.4.13", features = ["glam-serde"] }
-futures = "0.3.31"
-rand = { version = "0.8.5", default-features = false, features = [
-    "alloc",
-    "small_rng",
-] }
-rand_distr = { version = "0.4.3", default-features = false }
-serde = { version = "1.0.210", features = ["derive"] }
-serde_json = "1.0.128"
-tobj = { version = "4.0.2", default-features = false }
-anyhow = "1.0.89"
-derive_more = { version = "1.0.0", features = ["full"] }
-defer = "0.2.1"
-itertools = "0.13.0"
-glam = { version = "0.27.0", features = ["rand"] }
+wgame = { path = "wgame/wgame", default-features = false, features = ["3d", "image"] }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+rand = { version = "0.9.2", default-features = false, features = ["alloc", "small_rng"] }
+tobj = { version = "4.0.3", default-features = false }
+anyhow = "1.0.100"
+phy = { path = "phy" }
+glam = { version = "0.33.7", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.145"
 
 [dev-dependencies]
-approx = "0.5.1"
+wgpu = { version = "30.0.1", default-features = false }
+futures = { version = "0.3.34", features = ["executor"] }

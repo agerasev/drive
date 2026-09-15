@@ -1,0 +1,6 @@
+[submodule "phy"]
+	path = phy
+	url = ../phy
+[submodule "wgame"]
+	path = wgame
+	url = ../wgame/

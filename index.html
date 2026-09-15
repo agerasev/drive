@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drive</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #808080; }
+    #content { width: 100%; height: 100%; contain: size; }
+    /* Override winit's initial inline pixel size; its ResizeObserver updates
+       the drawing buffer when this viewport-sized layout changes. */
+    canvas { display: block; width: 100% !important; height: 100% !important; outline: none; touch-action: none; }
+  </style>
+  <link data-trunk rel="rust" data-bin="drive" />
+</head>
+<body>
+  <div id="content"><canvas id="canvas" tabindex="0" aria-label="Drive driving playground"></canvas></div>
+  <noscript>Drive requires JavaScript and WebGL2. Enable JavaScript to play.</noscript>
+</body>
+</html>

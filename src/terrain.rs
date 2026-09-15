@@ -1,16 +1,14 @@
-use macroquad::{
-    color::Color,
-    math::{Vec2, Vec3, Vec4},
-    models::{draw_mesh, Mesh},
-    texture::Texture2D,
-    ui::Vertex,
-};
-
 use crate::geometry::Triangle3;
+use glam::{Vec2, Vec3};
 
+pub struct TerrainVertex {
+    pub position: Vec3,
+    pub uv: Vec2,
+    pub shade: f32,
+}
 pub struct Terrain {
-    mesh: Mesh,
-    /// TODO: Use quad-tree
+    pub vertices: Vec<TerrainVertex>,
+    pub indices: Vec<u32>,
     tiles: Vec<Triangle3>,
 }
 
@@ -24,7 +22,7 @@ fn sample_height_map<F: Fn(Vec2) -> f32>(f: &F, coord: Vec2) -> Point {
     let pos = Vec3::from((coord, f(coord)));
     // Numerically compute normal
     let normal = {
-        let delta = 1e-4;
+        let delta = 0.01;
         let px = Vec3::from((
             coord + Vec2::new(delta, 0.0),
             f(coord + Vec2::new(delta, 0.0)),
@@ -41,33 +39,23 @@ fn sample_height_map<F: Fn(Vec2) -> f32>(f: &F, coord: Vec2) -> Point {
 impl Terrain {
     /// Dry friction coefficient.
     pub const DRY_FRICTION: f32 = 0.4;
-    /// Static friction coefficient.
-    pub const STICTION: f32 = Self::DRY_FRICTION;
 
-    pub fn from_height_map<F: Fn(Vec2) -> f32>(
-        f: F,
-        grid_size: f32,
-        n_steps: usize,
-        texture: Texture2D,
-    ) -> Self {
+    pub fn from_height_map<F: Fn(Vec2) -> f32>(f: F, grid_size: f32, n_steps: usize) -> Self {
+        assert!(n_steps > 0 && grid_size.is_finite() && grid_size > 0.0);
         let mut points = Vec::new();
         let mut tiles = Vec::new();
-        let mut mesh = Mesh {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-            texture: Some(texture),
-        };
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
         for iy in 0..(n_steps + 1) {
             for ix in 0..(n_steps + 1) {
                 let uv = Vec2::new(ix as f32, iy as f32) / n_steps as f32;
                 let coord = grid_size * (uv - 0.5);
                 let point = sample_height_map(&f, coord);
                 points.push(point);
-                mesh.vertices.push(Vertex {
+                vertices.push(TerrainVertex {
                     position: point.pos,
                     uv,
-                    color: Color::from_vec(Vec4::from((Vec3::splat(point.normal.z), 1.0))).into(),
-                    normal: Vec4::from((point.normal, 1.0)),
+                    shade: point.normal.z,
                 });
                 if ix != 0 && iy != 0 {
                     let n = points.len();
@@ -77,12 +65,15 @@ impl Terrain {
                     tiles.extend(
                         new_tile_indices.map(|ti| Triangle3::from(ti.map(|i| points[i].pos))),
                     );
-                    mesh.indices
-                        .extend(new_tile_indices.into_iter().flatten().map(|i| i as u16));
+                    indices.extend(new_tile_indices.into_iter().flatten().map(|i| i as u32));
                 }
             }
         }
-        Self { mesh, tiles }
+        Self {
+            vertices,
+            indices,
+            tiles,
+        }
     }
 
     pub fn tiles(&self) -> impl Iterator<Item = Triangle3> + '_ {
@@ -94,9 +85,5 @@ impl Terrain {
         self.tiles()
             .filter_map(|tile| tile.intersect_line(start, end))
             .min_by(|(dist0, ..), (dist1, ..)| dist0.total_cmp(dist1))
-    }
-
-    pub fn draw(&self) {
-        draw_mesh(&self.mesh);
     }
 }
