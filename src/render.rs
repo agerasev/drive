@@ -1,6 +1,6 @@
 use drive::{terrain::Terrain, vehicle::Vehicle};
 use glam::{Vec3, Vec4};
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use std::io::Cursor;
 use wgame::{
     Library, Result,
