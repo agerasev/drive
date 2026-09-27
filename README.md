@@ -5,6 +5,9 @@ and [phy](../phy) for rigid-body integration. The Logan and L200 models, terrain
 and suspension/friction model come from the original game. Its filtered Git
 history is preserved; see [provenance](history/README.md).
 
+[Play in your browser](https://agerasev.github.io/drive/) ·
+[Preview screenshots](https://agerasev.github.io/drive/previews/)
+
 ## Run
 
 Initialize the sibling-repository submodules, then start the game:
@@ -15,7 +18,8 @@ cargo run --locked --release
 ```
 
 Assets are embedded, so the executable can run from any working directory.
-Use the toolbar to select Logan or L200 and open the paint color picker. Each
+The game starts with the light gray L200. Use the toolbar to select Logan or
+L200 and open the paint color picker. Each
 vehicle remembers its color for the current session; **Default color** restores
 the shared light gray paint. Switching vehicles respawns the car. The pointer
 starts released so the controls are accessible; click the canvas to drive or

@@ -68,7 +68,7 @@ async fn main(window: Window<'_>) -> Result<()> {
         24,
     );
     let assets = render::Assets::new(&lib, &terrain)?;
-    let mut model = 0;
+    let mut model = appearance.get().model;
     let mut car = spawn(model)?;
     let mut orbit = Orbit::default();
     #[cfg(not(target_arch = "wasm32"))]

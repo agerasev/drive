@@ -12,7 +12,7 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            model: 0,
+            model: 1,
             colors: DEFAULT_PAINT,
         }
     }
@@ -31,6 +31,13 @@ pub fn linear_color(srgb: [u8; 3]) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_vehicle_is_l200_with_light_gray_paint() {
+        let appearance = Appearance::default();
+        assert_eq!(VEHICLE_NAMES[appearance.model], "Mitsubishi L200");
+        assert_eq!(appearance.colors[appearance.model], [190; 3]);
+    }
+
     #[test]
     fn picker_colors_are_converted_from_srgb_once() {
         assert_eq!(linear_color([0; 3]), Vec3::ZERO);
