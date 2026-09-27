@@ -116,3 +116,24 @@ mkdir -p vehicle-work/game-checks
 DRIVE_RENDER_OUTPUT="$PWD/vehicle-work/game-checks" \
   cargo test --locked --bin drive -- --ignored
 ```
+
+## Paint coverage
+
+Each vehicle has `paint.png` matching its body atlas and `details-paint.png`
+matching its detail atlas. These grayscale images contain linear coverage:
+white replaces the base albedo with the selected paint, black keeps the original
+albedo, and intermediate values blend in linear RGB. Do not store lighting in
+these masks or interpret them as opacity. Glass, lamps, rubber, bed liners and
+underbody panels remain unpainted.
+
+The game preserves the original color/normal files and packs coverage into the
+normal texture's alpha on upload. Detail parts use neutral normal RGB with normal
+mapping disabled, retaining their geometric normals. Both paths use
+`AlbedoMode::MaskedPaint`; per-instance RGB supplies the paint color. The picker
+keeps sRGB values and converts once for the shader. Default source colors live in
+`src/appearance.rs`.
+
+The masks follow the constant paint-material swatches in the existing unlit
+bakes, with a small allowance for interpolation. Generation code and inspection
+previews are retained in `vehicle-work/make_paint_masks.py` and
+`vehicle-work/exports/paint/`.

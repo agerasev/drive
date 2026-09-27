@@ -15,6 +15,10 @@ cargo run --locked --release
 ```
 
 Assets are embedded, so the executable can run from any working directory.
+Use the toolbar to select Logan or L200 and open the paint color picker. Each
+vehicle remembers its color for the current session; **Original color** restores
+its source paint. Switching vehicles respawns the car. The pointer starts released
+so the controls are accessible; click the canvas to drive or press Tab to capture it.
 
 - WASD / arrows: accelerate, reverse and steer.
 - Space, or forward and reverse together: brake.
@@ -54,7 +58,10 @@ Blinn–Phong highlights follow the camera. Both car bodies use object-space nor
 wheels use tangent-space maps. Separate windshields and source mirrors use
 their explicit mesh normals. Terrain uses its geometry normals. Color textures are decoded from
 sRGB for lighting, while normal-map RGB remains unconverted data. Both vehicles
-use opaque windows and omit their interiors.
+use opaque windows and omit their interiors. A separate paint mask restricts
+recoloring to painted panels and detail parts, keeping glass, lamps, trim and wheels
+unchanged. The mask is packed into normal-map alpha during loading, independently
+of opacity. Picker values are converted from sRGB to linear RGB before shading.
 The sun and material settings live in `src/render.rs`. Cast shadows are not simulated.
 See [vehicle asset conventions](assets/README.md) for source models, baked maps,
 and export requirements.

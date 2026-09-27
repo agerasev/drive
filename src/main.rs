@@ -1,9 +1,13 @@
+mod appearance;
 mod camera;
 mod render;
 mod timing;
+mod ui;
+use appearance::{Appearance, linear_color};
 use camera::Orbit;
 use drive::{config::VehicleConfig, terrain::Terrain, vehicle::Vehicle};
 use glam::{Quat, Vec3};
+use std::{cell::Cell, rc::Rc};
 use wgame::{
     Library, Result, Window,
     app::time::Instant,
@@ -11,6 +15,7 @@ use wgame::{
     gfx::{Camera, Scene},
     prelude::*,
 };
+use wgame_egui::EguiWindow;
 
 fn config(model: usize) -> Result<VehicleConfig> {
     Ok(serde_json::from_slice(if model == 0 {
@@ -48,8 +53,15 @@ impl Drop for Capture<'_> {
 }
 
 #[wgame::window(title = "Drive — WASD, Space: brake, mouse: orbit, Tab: capture", logical_size = (1280.0,720.0), resizable = true, vsync = true)]
-async fn main(mut window: Window<'_>) -> Result<()> {
-    let lib = Library::new(window.graphics());
+async fn main(window: Window<'_>) -> Result<()> {
+    let raw = window.raw();
+    let _capture = Capture(raw);
+    let appearance = Rc::new(Cell::new(Appearance::default()));
+    let mut host = EguiWindow::new(window, {
+        let appearance = appearance.clone();
+        move |ui, canvas| ui::layout(ui, canvas, &appearance)
+    });
+    let lib = Library::new(host.graphics());
     let terrain = Terrain::from_height_map(
         |c| 8.0 * (1.0 - 1.0 / (1.0 + 0.002 * c.length_squared())),
         64.0,
@@ -59,27 +71,22 @@ async fn main(mut window: Window<'_>) -> Result<()> {
     let mut model = 0;
     let mut car = spawn(model)?;
     let mut orbit = Orbit::default();
-    let raw = window.raw();
-    let _capture = Capture(raw);
     #[cfg(not(target_arch = "wasm32"))]
     let smoke = std::env::args().any(|arg| arg == "--smoke");
     #[cfg(target_arch = "wasm32")]
     let smoke = false;
-    let mut captured = if cfg!(target_arch = "wasm32") || smoke {
-        false
-    } else {
-        grab(raw, true)
-    };
+    let mut captured = false;
     let mut paused = false;
     let mut slow = false;
     let mut pointer = None;
     let mut clock = timing::Clock::default();
     let mut last = Instant::now();
     let mut frames = 0;
-    'frames: while let Some(mut frame) = window.next_frame().await? {
+    'frames: while let Some(mut frame) = host.next_frame().await? {
         let now = Instant::now();
         let elapsed = now - last;
         last = now;
+        let mut choice = appearance.get();
         let mut reset = false;
         let mut scroll = 0.0;
         for event in &frame.input().events {
@@ -110,9 +117,7 @@ async fn main(mut window: Window<'_>) -> Result<()> {
                         reset = true;
                     }
                     Key::Character('1' | '2') => {
-                        model = usize::from(key == Key::Character('2'));
-                        car = spawn(model)?;
-                        reset = true;
+                        choice.model = usize::from(key == Key::Character('2'));
                     }
                     _ => {}
                 },
@@ -129,13 +134,19 @@ async fn main(mut window: Window<'_>) -> Result<()> {
                 Event::Cancelled | Event::Focused(false) => {
                     reset = true;
                     pointer = None;
-                    if !frame.input().window_focused {
+                    if !frame.input().focused {
                         captured = grab(raw, false);
                     }
                 }
                 _ => {}
             }
         }
+        if choice.model != model {
+            model = choice.model;
+            car = spawn(model)?;
+            reset = true;
+        }
+        appearance.set(choice);
         if scroll != 0.0 {
             orbit.zoom(scroll);
         } else if captured {
@@ -173,7 +184,7 @@ async fn main(mut window: Window<'_>) -> Result<()> {
         frame.clear(wgame::rgb::Rgb::new(0.5_f32, 0.5, 0.5));
         frame.render(&camera, &assets.terrain);
         let mut scene = Scene::default();
-        assets.draw_vehicle(&car, model, &mut scene);
+        assets.draw_vehicle(&car, model, linear_color(choice.colors[model]), &mut scene);
         if !captured
             && let Some(pos) = frame.input().pointer
             && let Some((origin, dir)) =
@@ -185,6 +196,12 @@ async fn main(mut window: Window<'_>) -> Result<()> {
         frame.render_iter(&camera, scene.iter());
         frame.present();
         frames += 1;
+        if smoke && (frames == 3 || frames == 6) {
+            let mut choice = appearance.get();
+            choice.model = 1 - choice.model;
+            choice.colors[choice.model] = [190, 45, 25];
+            appearance.set(choice);
+        }
         if smoke && frames >= 12 {
             break;
         }

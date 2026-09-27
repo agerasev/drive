@@ -6,10 +6,11 @@ license = "GPL-3.0-only"
 
 [features]
 default = ["desktop"]
-desktop = ["wgame/desktop"]
-web = ["wgame/web"]
+desktop = ["wgame/desktop", "wgame-egui/desktop"]
+web = ["wgame/web", "wgame-egui/web"]
 
 [dependencies]
+wgame-egui = { path = "wgame/wgame-egui", default-features = false }
 wgame = { path = "wgame/wgame", default-features = false, features = ["3d", "image"] }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 rand = { version = "0.10.2", default-features = false, features = ["alloc"] }

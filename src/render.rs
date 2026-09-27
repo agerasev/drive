@@ -6,12 +6,12 @@ use wgame::{
     Library, Result,
     gfx::types::{Color, color},
     gfx::{BakedScene, Scene},
-    image::{Atlas, Image, ImageBase, ImageWriteMut},
+    image::{Atlas, Image, ImageBase, ImageReadExt, ImageWriteMut},
     prelude::*,
     shapes::{Mesh, PolygonFill, shader::Vertex},
     shapes3d::{
-        LightParameters, Lighting, LitMaterial, LitMesh, MaterialSettings, NormalSpace, NormalY,
-        recalculate_normals,
+        AlbedoMode, LightParameters, Lighting, LitMaterial, LitMesh, MaterialSettings, NormalSpace,
+        NormalY, recalculate_normals,
     },
     texture::{Texture, TextureAtlas, TextureSettings},
 };
@@ -25,6 +25,12 @@ pub struct Assets {
 }
 fn texture(lib: &Library, bytes: &[u8]) -> Result<Texture> {
     let image = Image::decode_auto(bytes)?;
+    texture_image(lib, &image)
+}
+fn texture_image(
+    lib: &Library,
+    image: &Image<wgame::rgb::Rgba<wgame::half::f16>>,
+) -> Result<Texture> {
     let size = image.size();
     if size.width >= 2048 || size.height >= 2048 {
         // Atlas padding makes a 4K map exceed 4096. Keep large maps in exact-sized
@@ -35,11 +41,28 @@ fn texture(lib: &Library, bytes: &[u8]) -> Result<Texture> {
             wgpu::TextureFormat::Rgba16Float,
         );
         let texture = atlas.allocate(size, TextureSettings::linear());
-        texture.update(|mut dst| dst.copy_from(&image));
+        texture.update(|mut dst| dst.copy_from(image));
         Ok(texture)
     } else {
-        Ok(lib.make_texture(&image, TextureSettings::linear()))
+        Ok(lib.make_texture(image, TextureSettings::linear()))
     }
+}
+/// Pack independent paint coverage into raw normal alpha, never opacity.
+fn normal_paint_texture(lib: &Library, normal: Option<&[u8]>, paint: &[u8]) -> Result<Texture> {
+    let mask = Image::decode_auto(paint)?;
+    let mut image = if let Some(bytes) = normal {
+        Image::decode_auto(bytes)?
+    } else {
+        Image::with_color(mask.size(), Vec4::new(0.5, 0.5, 1.0, 1.0).to_rgba_f16())
+    };
+    anyhow::ensure!(
+        image.size() == mask.size(),
+        "normal and paint map dimensions differ"
+    );
+    for (position, pixel) in image.pixels_mut() {
+        pixel.a = mask.get(position).r;
+    }
+    texture_image(lib, &image)
 }
 fn body_material(
     lighting: &Lighting,
@@ -57,6 +80,7 @@ fn body_material(
             specular: 0.2,
             shininess: 48.0,
             normal_space,
+            albedo_mode: AlbedoMode::MaskedPaint,
             // For tangent-space maps, the OBJ exporter flips Blender's V for top-left image sampling.
             // Its baked +Y normals therefore point against increasing game V.
             normal_y: NormalY::Negative,
@@ -154,15 +178,19 @@ fn detail_models(
     lighting: &Lighting,
     obj: &[u8],
     png: &[u8],
+    paint: &[u8],
 ) -> Result<Vec<LitMesh>> {
     let color = texture(lib, png)?;
+    let normal_paint = normal_paint_texture(lib, None, paint)?;
     // Mirrors and windshield retain their own geometry and explicit normals.
     // Applying the body bake here would project through thin, separate surfaces.
     let material = lighting.material(
-        None,
+        Some(&normal_paint),
         MaterialSettings {
             specular: 0.2,
             shininess: 48.0,
+            normal_strength: 0.0,
+            albedo_mode: AlbedoMode::MaskedPaint,
             ..Default::default()
         },
     )?;
@@ -211,8 +239,16 @@ impl Assets {
     pub fn new(lib: &Library, terrain: &Terrain) -> Result<Self> {
         let logan = texture(lib, include_bytes!("../assets/logan/color.png"))?;
         let l200 = texture(lib, include_bytes!("../assets/l200/color.png"))?;
-        let logan_normal = texture(lib, include_bytes!("../assets/logan/normal.png"))?;
-        let l200_normal = texture(lib, include_bytes!("../assets/l200/normal.png"))?;
+        let logan_normal = normal_paint_texture(
+            lib,
+            Some(include_bytes!("../assets/logan/normal.png")),
+            include_bytes!("../assets/logan/paint.png"),
+        )?;
+        let l200_normal = normal_paint_texture(
+            lib,
+            Some(include_bytes!("../assets/l200/normal.png")),
+            include_bytes!("../assets/l200/paint.png"),
+        )?;
         let wheel = texture(lib, include_bytes!("../assets/wheel/color.png"))?;
         // Decode normal RGB as raw data. The lighting shader only linearizes albedo.
         // Wheel normal vectors are already rotated into the packed atlas UV frame.
@@ -272,12 +308,14 @@ impl Assets {
             &lighting,
             include_bytes!("../assets/logan/details.obj"),
             include_bytes!("../assets/logan/details.png"),
+            include_bytes!("../assets/logan/details-paint.png"),
         )?);
         cars[1].extend(detail_models(
             lib,
             &lighting,
             include_bytes!("../assets/l200/details.obj"),
             include_bytes!("../assets/l200/details.png"),
+            include_bytes!("../assets/l200/details-paint.png"),
         )?);
         let wheel = wheel_mesh(lib, &wheel).with_material(&wheel_material);
         let marker = lib.shapes().sphere(16, 8).fill_color(color::RED);
@@ -313,9 +351,13 @@ impl Assets {
         })?;
         Ok(())
     }
-    pub fn draw_vehicle(&self, car: &Vehicle, model: usize, scene: &mut Scene) {
+    pub fn draw_vehicle(&self, car: &Vehicle, model: usize, paint: Vec3, scene: &mut Scene) {
         for body in &self.cars[model] {
-            scene.add(&body.transform(car.transform()));
+            scene.add(
+                &body
+                    .multiply_color(paint.extend(1.0))
+                    .transform(car.transform()),
+            );
         }
         for transform in car.wheel_transforms() {
             scene.add(&self.wheel.transform(transform));

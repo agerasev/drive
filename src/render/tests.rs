@@ -106,7 +106,12 @@ fn both_vehicle_assets_render_with_shared_depth() {
             assets.update_lighting(eye).unwrap();
             let camera = Camera::new(&gfx, matrix);
             let mut scene = Scene::default();
-            assets.draw_vehicle(&car, model, &mut scene);
+            assets.draw_vehicle(
+                &car,
+                model,
+                crate::appearance::linear_color(crate::appearance::DEFAULT_PAINT[model]),
+                &mut scene,
+            );
             target.clear(color::BLACK);
             target.render(&camera, &assets.terrain);
             let ground = pixels(&mut target);
@@ -484,27 +489,37 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
     let gfx = graphics();
     let lib = Library::new(&gfx);
     let albedo = texture(&lib, color).unwrap();
-    let normals = texture(&lib, normal).unwrap();
+    let paint: &[u8] = if car == "logan" {
+        include_bytes!("../../assets/logan/paint.png")
+    } else {
+        include_bytes!("../../assets/l200/paint.png")
+    };
+    let normals = normal_paint_texture(&lib, Some(normal), paint).unwrap();
+    let paint_color = crate::appearance::linear_color(
+        crate::appearance::DEFAULT_PAINT[usize::from(car == "l200")],
+    );
     let lighting =
         Lighting::new(lib.shapes(), lib.texturing(), LightParameters::default()).unwrap();
     let material = body_material(&lighting, &albedo, &normals, NormalSpace::Object).unwrap();
     let mut scene = Scene::default();
     for mesh in model(&lib, obj, &albedo, &material).unwrap() {
-        scene.add(&mesh);
+        scene.add(&mesh.multiply_color(paint_color.extend(1.0)));
     }
-    let (detail_obj, detail_png): (&[u8], &[u8]) = if car == "logan" {
+    let (detail_obj, detail_png, detail_paint): (&[u8], &[u8], &[u8]) = if car == "logan" {
         (
             include_bytes!("../../assets/logan/details.obj"),
             include_bytes!("../../assets/logan/details.png"),
+            include_bytes!("../../assets/logan/details-paint.png"),
         )
     } else {
         (
             include_bytes!("../../assets/l200/details.obj"),
             include_bytes!("../../assets/l200/details.png"),
+            include_bytes!("../../assets/l200/details-paint.png"),
         )
     };
-    for mesh in detail_models(&lib, &lighting, detail_obj, detail_png).unwrap() {
-        scene.add(&mesh);
+    for mesh in detail_models(&lib, &lighting, detail_obj, detail_png, detail_paint).unwrap() {
+        scene.add(&mesh.multiply_color(paint_color.extend(1.0)));
     }
     let wheel_color = texture(&lib, include_bytes!("../../assets/wheel/color.png")).unwrap();
     let wheel_normal = texture(&lib, include_bytes!("../../assets/wheel/normal.png")).unwrap();
@@ -1593,5 +1608,101 @@ fn l200_cab_and_bed_are_independent_shells_with_separate_atlas_regions() {
                 assert!(distance < 1.25, "ray passed through the cab side");
             }
         }
+    }
+}
+
+#[test]
+fn paint_masks_match_assets_and_keep_dark_trim_unpainted() {
+    use super::*;
+    for (base, paint) in [
+        (
+            &include_bytes!("../../assets/logan/color.png")[..],
+            &include_bytes!("../../assets/logan/paint.png")[..],
+        ),
+        (
+            &include_bytes!("../../assets/l200/color.png")[..],
+            &include_bytes!("../../assets/l200/paint.png")[..],
+        ),
+        (
+            &include_bytes!("../../assets/logan/details.png")[..],
+            &include_bytes!("../../assets/logan/details-paint.png")[..],
+        ),
+        (
+            &include_bytes!("../../assets/l200/details.png")[..],
+            &include_bytes!("../../assets/l200/details-paint.png")[..],
+        ),
+    ] {
+        let base = Image::decode_auto(base).unwrap();
+        let mask = Image::decode_auto(paint).unwrap();
+        assert_eq!(base.size(), mask.size());
+        let mut painted = 0;
+        for (pos, pixel) in base.pixels() {
+            let coverage = f32::from(mask.get(pos).r);
+            if coverage > 0.99 {
+                painted += 1;
+            }
+            if pixel.r.to_f32().max(pixel.g.to_f32()).max(pixel.b.to_f32()) < 0.15 {
+                assert_eq!(coverage, 0.0, "dark glass/rubber must retain its albedo");
+            }
+        }
+        assert!(painted >= 256, "body and detail maps need a painted region");
+    }
+}
+
+#[test]
+#[ignore = "requires a GPU adapter; run with --ignored"]
+fn vehicle_paint_changes_body_but_preserves_trim_and_wheels() {
+    use super::*;
+    use crate::camera::Orbit;
+    let gfx = graphics();
+    let lib = Library::new(&gfx);
+    let terrain = Terrain::from_height_map(|_| 0.0, 64.0, 24);
+    let assets = Assets::new(&lib, &terrain).unwrap();
+    let mut target = Offscreen::new(&gfx, (960, 600));
+    for model in 0..2 {
+        let car = crate::spawn(model).unwrap();
+        let mut orbit = Orbit::default();
+        orbit.rotate(glam::Vec2::new(620.0, -50.0));
+        orbit.zoom(2.0);
+        let (matrix, eye) = orbit.view(car.pos(), &terrain, 1.6);
+        assets.update_lighting(eye).unwrap();
+        let camera = wgame::gfx::Camera::new(&gfx, matrix);
+        let render = |target: &mut Offscreen, paint: [u8; 3]| {
+            let mut scene = Scene::default();
+            assets.draw_vehicle(
+                &car,
+                model,
+                crate::appearance::linear_color(paint),
+                &mut scene,
+            );
+            target.clear(Vec4::new(0.18, 0.18, 0.18, 1.0));
+            target.render(&camera, &scene.bake());
+            pixels(target)
+        };
+        let red = render(&mut target, [210, 35, 20]);
+        let blue = render(&mut target, [25, 65, 210]);
+        let mut changed = 0;
+        let mut preserved = 0;
+        for (a, b) in red
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(blue.as_chunks::<4>().0.iter())
+        {
+            if a[0].abs_diff(b[0]) > 30 && a[2].abs_diff(b[2]) > 30 {
+                changed += 1;
+            }
+            if a == b && a[0] < 35 && a[1] < 35 && a[2] < 35 {
+                preserved += 1;
+            }
+        }
+        assert!(changed > 5000, "painted body should change: {changed}");
+        assert!(
+            preserved > 1000,
+            "glass, tires and trim should stay dark: {preserved}"
+        );
+        let name = if model == 0 { "logan" } else { "l200" };
+        save_image(&format!("{name}-paint-red"), target.size(), &red);
+        save_image(&format!("{name}-paint-blue"), target.size(), &blue);
     }
 }
