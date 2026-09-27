@@ -16,9 +16,11 @@ use wgame::{
     texture::{Texture, TextureAtlas, TextureSettings},
 };
 
+mod wheel;
+
 pub struct Assets {
     cars: [Vec<LitMesh>; 2],
-    wheel: LitMesh,
+    wheel: Vec<LitMesh>,
     lighting: Lighting,
     marker: PolygonFill,
     pub terrain: BakedScene,
@@ -213,7 +215,7 @@ fn detail_models(
 fn wheel_mesh(lib: &Library, texture: &Texture) -> PolygonFill {
     // Both wheel maps have a radial face in the first 256x256 pixels and
     // a 64-pixel tread strip on the right. Keep separate cap/side UV charts.
-    let (mut wheel_vertices, wheel_indices) = wgame::shapes3d::cylinder_mesh(32);
+    let (mut wheel_vertices, wheel_indices) = wheel::tire_geometry();
     for vertex in &mut wheel_vertices {
         let pixel = if vertex.normal.z.abs() > 0.5 {
             glam::Vec2::new(vertex.pos.x + 1.0, vertex.pos.y + 1.0) * 128.0
@@ -317,7 +319,18 @@ impl Assets {
             include_bytes!("../assets/l200/details.png"),
             include_bytes!("../assets/l200/details-paint.png"),
         )?);
-        let wheel = wheel_mesh(lib, &wheel).with_material(&wheel_material);
+        let rim_material = lighting.material(
+            None,
+            MaterialSettings {
+                specular: 0.15,
+                shininess: 32.0,
+                ..Default::default()
+            },
+        )?;
+        let wheel = vec![
+            wheel_mesh(lib, &wheel).with_material(&wheel_material),
+            wheel::barrel(lib).with_material(&rim_material),
+        ];
         let marker = lib.shapes().sphere(16, 8).fill_color(color::RED);
         let vertices: Vec<_> = terrain
             .vertices
@@ -360,7 +373,9 @@ impl Assets {
             );
         }
         for transform in car.wheel_transforms() {
-            scene.add(&self.wheel.transform(transform));
+            for part in &self.wheel {
+                scene.add(&part.transform(transform));
+            }
         }
     }
     pub fn draw_marker(&self, position: Vec3, radius: f32, scene: &mut Scene) {

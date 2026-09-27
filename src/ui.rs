@@ -18,7 +18,7 @@ pub fn layout(ui: &mut egui::Ui, canvas: &Canvas, state: &Cell<Appearance>) -> e
                 });
             ui.label("Paint");
             ui.color_edit_button_srgb(&mut appearance.colors[appearance.model]);
-            if ui.small_button("Original color").clicked() {
+            if ui.small_button("Default color").clicked() {
                 appearance.colors[appearance.model] = DEFAULT_PAINT[appearance.model];
             }
             ui.separator();

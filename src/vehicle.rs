@@ -350,6 +350,7 @@ impl Vehicle {
     pub fn velocity(&self) -> Vec3 {
         *self.vel
     }
+    /// Wheel-local +Z points outward; the sole spoke face is on that side.
     pub fn wheel_transforms(&self) -> [Affine3A; 4] {
         self.wheels.each_ref().map(|wheel| {
             self.transform()
@@ -357,7 +358,12 @@ impl Vehicle {
                     Vec3::new(wheel.common.radius, wheel.common.radius, wheel.common.width),
                     Quat::from_rotation_z(wheel.axis.y.atan2(wheel.axis.x))
                         * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
-                        * Quat::from_rotation_z(wheel.rot.angle()),
+                        * Quat::from_rotation_z(wheel.rot.angle())
+                        * if wheel.config.center.x < 0.0 {
+                            Quat::from_rotation_y(std::f32::consts::PI)
+                        } else {
+                            Quat::IDENTITY
+                        },
                     wheel.center(),
                 )
         })

@@ -16,9 +16,10 @@ cargo run --locked --release
 
 Assets are embedded, so the executable can run from any working directory.
 Use the toolbar to select Logan or L200 and open the paint color picker. Each
-vehicle remembers its color for the current session; **Original color** restores
-its source paint. Switching vehicles respawns the car. The pointer starts released
-so the controls are accessible; click the canvas to drive or press Tab to capture it.
+vehicle remembers its color for the current session; **Default color** restores
+the shared light gray paint. Switching vehicles respawns the car. The pointer
+starts released so the controls are accessible; click the canvas to drive or
+press Tab to capture it.
 
 - WASD / arrows: accelerate, reverse and steer.
 - Space, or forward and reverse together: brake.

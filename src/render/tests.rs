@@ -1,3 +1,6 @@
+mod panels;
+mod wheels;
+
 use wgame::gfx::{Graphics, Offscreen, prelude::*};
 fn graphics() -> Graphics {
     futures::executor::block_on(async {
@@ -502,8 +505,11 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
         Lighting::new(lib.shapes(), lib.texturing(), LightParameters::default()).unwrap();
     let material = body_material(&lighting, &albedo, &normals, NormalSpace::Object).unwrap();
     let mut scene = Scene::default();
+    let mut blue_scene = Scene::default();
+    let blue = crate::appearance::linear_color([25, 65, 210]).extend(1.0);
     for mesh in model(&lib, obj, &albedo, &material).unwrap() {
         scene.add(&mesh.multiply_color(paint_color.extend(1.0)));
+        blue_scene.add(&mesh.multiply_color(blue));
     }
     let (detail_obj, detail_png, detail_paint): (&[u8], &[u8], &[u8]) = if car == "logan" {
         (
@@ -520,6 +526,7 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
     };
     for mesh in detail_models(&lib, &lighting, detail_obj, detail_png, detail_paint).unwrap() {
         scene.add(&mesh.multiply_color(paint_color.extend(1.0)));
+        blue_scene.add(&mesh.multiply_color(blue));
     }
     let wheel_color = texture(&lib, include_bytes!("../../assets/wheel/color.png")).unwrap();
     let wheel_normal = texture(&lib, include_bytes!("../../assets/wheel/normal.png")).unwrap();
@@ -535,6 +542,10 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
         )
         .unwrap();
     let wheel = wheel_mesh(&lib, &wheel_color).with_material(&wheel_material);
+    let rim_material = lighting
+        .material(None, MaterialSettings::default())
+        .unwrap();
+    let rim = wheel::barrel(&lib).with_material(&rim_material);
     let terrain = Terrain::from_height_map(|_| 0.0, 32., 8);
     let mut vehicle = crate::spawn(usize::from(car == "l200")).unwrap();
     for _ in 0..1440 {
@@ -543,7 +554,10 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
     let wheels: Vec<_> = vehicle
         .wheel_transforms()
         .into_iter()
-        .map(|t| wheel.transform(vehicle.transform().inverse() * t))
+        .flat_map(|t| {
+            let transform = vehicle.transform().inverse() * t;
+            [wheel.transform(transform), rim.transform(transform)]
+        })
         .collect();
     let mut wheel_scene = Scene::default();
     for wheel in &wheels {
@@ -646,6 +660,11 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
         ),
         ("front", Vec3::new(3.1, 3.0, 1.6), Vec3::new(0.7, 1.1, 0.35)),
         (
+            "trunk-edge",
+            Vec3::new(2.8, -3.4, 1.1),
+            Vec3::new(0.1, -1.9, 0.48),
+        ),
+        (
             "rear",
             Vec3::new(-3.1, -3.0, 1.6),
             Vec3::new(-0.7, -1.1, 0.35),
@@ -694,6 +713,12 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
         }
         assert!(rendered.as_chunks::<4>().0.iter().any(|p| p[0] > 100));
         save_image(&format!("{car}-close-{name}"), target.size(), &rendered);
+        if matches!(name, "front" | "doors" | "bed" | "trunk-edge") {
+            target.clear(Vec4::new(0.18, 0.18, 0.18, 1.0));
+            target.render(&camera, &blue_scene.bake());
+            let painted = pixels(&mut target);
+            save_image(&format!("{car}-close-{name}-blue"), target.size(), &painted);
+        }
     }
 }
 

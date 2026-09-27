@@ -285,3 +285,22 @@ fn sloped_ground_supports_a_braked_vehicle() {
         "{up:?}"
     );
 }
+
+#[test]
+fn wheel_outer_faces_point_away_from_the_body_while_steering_and_spinning() {
+    for config in configs() {
+        let mut car = Vehicle::new(config, Vec3::ZERO, Quat::IDENTITY);
+        for steering in [-0.4, 0.0, 0.4] {
+            car.steer(steering);
+            for wheel in &mut car.wheels {
+                wheel.rot = Var::new(Rot2::from(0.7));
+            }
+            for (wheel, transform) in car.wheels.iter().zip(car.wheel_transforms()) {
+                let outward = transform.transform_vector3(Vec3::Z).normalize();
+                assert!(outward.dot(wheel.axis * wheel.config.center.x.signum()) > 0.999);
+                assert!((transform.transform_point3(Vec3::ZERO) - wheel.center()).length() < 1e-6);
+                assert!(transform.matrix3.determinant() > 0.0);
+            }
+        }
+    }
+}

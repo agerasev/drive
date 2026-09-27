@@ -3,7 +3,9 @@
 Each vehicle body has a triangulated `model.obj`, an sRGB `color.png` and a
 raw RGB `normal.png`. Both bodies use object-space normal maps and 4096×4096
 atlases with matching color/normal UVs. Independent runtime wheels use
-tangent-space normals. Wheels remain separate so steering, spin and suspension
+tangent-space normals. Each wheel has one outer spoke disk, an open inner
+sidewall and a plain metal rim barrel. Wheel-local +Z points outward on both
+sides of the car. Wheels remain separate so steering, spin and suspension
 remain independent of the body mesh. Each vehicle also has `details.obj` and
 `details.png` for independently shaded geometry: source mirrors, a fitted
 windshield and its surround. L200 details also include a plain opaque underbody.
@@ -73,6 +75,8 @@ follow source hem cross-sections. The rear apron has a manually authored, symmet
 lower curve and a plain painted strip; source exhaust and tow recesses are
 omitted from its geometry. A recessed black panel closes inside that curve without following
 source notches. The underside stays within the bumper rim.
+The Logan trunk cage follows the upper lid fold with a dedicated support row;
+a broad diagonal must not cut across that fold and lower the trailing edge.
 Source copies, Blender scenes, scripts and previews are kept locally in the
 git-ignored `vehicle-work/` directory.
 
@@ -130,10 +134,12 @@ The game preserves the original color/normal files and packs coverage into the
 normal texture's alpha on upload. Detail parts use neutral normal RGB with normal
 mapping disabled, retaining their geometric normals. Both paths use
 `AlbedoMode::MaskedPaint`; per-instance RGB supplies the paint color. The picker
-keeps sRGB values and converts once for the shader. Default source colors live in
-`src/appearance.rs`.
+keeps sRGB values and converts once for the shader. Both vehicles start with the
+same light gray; their default is defined in `src/appearance.rs`.
 
 The masks follow the constant paint-material swatches in the existing unlit
-bakes, with a small allowance for interpolation. Generation code and inspection
-previews are retained in `vehicle-work/make_paint_masks.py` and
+bakes, with a small allowance for interpolation. On the L200, connected silver
+paint bevels also belong to the mask even when their baked brightness differs
+from the main swatch; neutral seals and isolated chrome remain excluded.
+Generation code and inspection previews are retained in `vehicle-work/make_paint_masks.py` and
 `vehicle-work/exports/paint/`.

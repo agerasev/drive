@@ -2,7 +2,7 @@
 use glam::Vec3;
 
 pub const VEHICLE_NAMES: [&str; 2] = ["Renault Logan", "Mitsubishi L200"];
-pub const DEFAULT_PAINT: [[u8; 3]; 2] = [[103, 107, 103], [183, 186, 205]];
+pub const DEFAULT_PAINT: [[u8; 3]; 2] = [[190, 190, 190]; 2];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Appearance {
