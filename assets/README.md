@@ -65,6 +65,14 @@ and smooth curvature fitted to its source. A narrow surround stitches that
 outline into an opening cut in the body cage. The old projected glass boundary
 is removed with the opening; triangle-dependent projection cannot distort the
 new outline. Glass remains opaque.
+Logan's rear pane uses one smooth normal field fitted to the source curvature;
+independently smoothed source halves must not introduce a center seam. Its floor
+closures rise behind the front and rear bumper outlines to avoid a protruding
+black slab, while keeping the underside closed. The side and front bumper rims
+follow source hem cross-sections. The rear apron has a manually authored, symmetric
+lower curve and a plain painted strip; source exhaust and tow recesses are
+omitted from its geometry. A recessed black panel closes inside that curve without following
+source notches. The underside stays within the bumper rim.
 Source copies, Blender scenes, scripts and previews are kept locally in the
 git-ignored `vehicle-work/` directory.
 
@@ -84,7 +92,10 @@ git-ignored `vehicle-work/` directory.
   The CPU asset test compares the decoded object normals with triangle winding.
 - Export explicit normals and UVs for every triangle corner. UVs use top-left
   image coordinates: export Blender UV `(u, v)` as `(u, 1 - v)`.
-- Wheel tangent maps retain Blender's +Y convention and use `NormalY::Positive`.
+- The wheel atlas is packed with a clockwise image rotation. Its normal vectors
+  are converted from Blender's original +Y-up frame into the packed, downward-V
+  frame by swapping red and green; use `NormalY::Positive` with this converted
+  map. Rotating normal-map pixels alone makes highlights move as the wheel spins.
   Normal RGB is raw data and must never undergo sRGB conversion. Albedo is sRGB;
   encode linear source colors before writing the color PNG.
 - Keep UV islands disjoint and pad their baked pixels for linear filtering.

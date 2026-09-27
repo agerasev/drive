@@ -215,6 +215,7 @@ impl Assets {
         let l200_normal = texture(lib, include_bytes!("../assets/l200/normal.png"))?;
         let wheel = texture(lib, include_bytes!("../assets/wheel/color.png"))?;
         // Decode normal RGB as raw data. The lighting shader only linearizes albedo.
+        // Wheel normal vectors are already rotated into the packed atlas UV frame.
         let wheel_normal = texture(lib, include_bytes!("../assets/wheel/normal.png"))?;
         anyhow::ensure!(
             wheel.size() == wheel_normal.size(),

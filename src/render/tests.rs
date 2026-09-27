@@ -303,6 +303,86 @@ fn wheel_normal_map_shades_face_and_tread() {
 
 #[test]
 #[ignore = "requires a GPU adapter; run with --ignored"]
+fn wheel_sidewall_lighting_stays_under_a_fixed_light_while_spinning() {
+    use super::*;
+    use glam::{Affine3A, Quat, Vec3};
+    use wgame::gfx::Camera;
+    let gfx = graphics();
+    let lib = Library::new(&gfx);
+    let normal = texture(&lib, include_bytes!("../../assets/wheel/normal.png")).unwrap();
+    // Remove painted highlights: measure only the normal-map response.
+    let white = lib.make_texture(
+        &Image::with_color(normal.size(), color::WHITE.to_rgba_f16()),
+        TextureSettings::linear(),
+    );
+    let lighting = Lighting::new(
+        lib.shapes(),
+        lib.texturing(),
+        LightParameters {
+            ambient: Vec3::ZERO,
+            color: Vec3::ONE,
+            direction: Vec3::Z,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let material = lighting
+        .material(
+            Some(&normal),
+            MaterialSettings {
+                specular: 0.,
+                normal_y: NormalY::Positive,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let wheel = wheel_mesh(&lib, &white).with_material(&material);
+    let mut target = Offscreen::new(&gfx, (256, 256));
+    for side in [-1., 1.] {
+        let eye = Vec3::new(side * 4., 0., 0.);
+        let view = glam::camera::rh::proj::directx::perspective(0.65, 1., 0.1, 20.)
+            * glam::camera::rh::view::look_at_mat4(eye, Vec3::ZERO, Vec3::Z);
+        let camera = Camera::new(&gfx, view);
+        for angle in [0., 0.4, 0.9, 1.6, 2.2, 3.] {
+            let transform = Affine3A::from_scale_rotation_translation(
+                Vec3::new(1., 1., 0.6),
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_2) * Quat::from_rotation_z(angle),
+                Vec3::ZERO,
+            );
+            let mut scene = Scene::default();
+            scene.add(&wheel.transform(transform));
+            target.clear(color::BLACK);
+            target.render(&camera, &scene.bake());
+            let data = pixels(&mut target);
+            let brightness = |z| {
+                let q = view * Vec3::new(side * 0.3, 0., z).extend(1.);
+                let x = ((q.x / q.w * 0.5 + 0.5) * 256.) as usize;
+                let y = ((0.5 - q.y / q.w * 0.5) * 256.) as usize;
+                let mut sum = 0u32;
+                for yy in y - 2..=y + 2 {
+                    for xx in x - 2..=x + 2 {
+                        sum += u32::from(data[(yy * 256 + xx) * 4]);
+                    }
+                }
+                sum as f32 / 25.
+            };
+            let top = brightness(0.875);
+            let bottom = brightness(-0.875);
+            assert!(
+                top > 120. && top > bottom + 80.,
+                "wheel highlight follows spin instead of light: face {side}, angle {angle}, top {top}, bottom {bottom}"
+            );
+            save_image(
+                &format!("wheel-fixed-light-{side}-{angle}"),
+                target.size(),
+                &data,
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a GPU adapter; run with --ignored"]
 fn baked_body_normals_shade_both_vehicles() {
     use super::*;
     use wgame::gfx::Camera;
@@ -457,6 +537,16 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
     let wheel_scene = wheel_scene.bake();
     for (name, eye, aim) in [
         (
+            "front-corner-low-wheel",
+            Vec3::new(2.6, 4., -0.55),
+            Vec3::new(0.6, 1.98, -0.15),
+        ),
+        (
+            "rear-corner-low-wheel",
+            Vec3::new(-2.6, -4., -0.55),
+            Vec3::new(-0.6, -1.98, -0.15),
+        ),
+        (
             "front-arch-wheel",
             Vec3::new(2.8, if car == "l200" { 2.1 } else { 1.7 }, 0.03),
             Vec3::new(0.9, if car == "l200" { 1.97 } else { 1.48 }, 0.07),
@@ -490,6 +580,11 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
             "bed-front-corner-right",
             Vec3::new(3.0, 0.2, -0.20),
             Vec3::new(1.05, -0.82, -0.48),
+        ),
+        (
+            "rear-window",
+            Vec3::new(0.25, -3.2, 2.7),
+            Vec3::new(0., -1.4, 0.82),
         ),
         (
             "rear-roof-edge",
@@ -551,6 +646,11 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
             Vec3::new(-0.15, -4.8, -0.12),
             Vec3::new(0.0, -2.0, 0.08),
         ),
+        (
+            "rear-low-wheel",
+            Vec3::new(-0.15, -4.8, -0.12),
+            Vec3::new(0.0, -2.0, 0.08),
+        ),
     ] {
         lighting
             .update(LightParameters {
@@ -565,7 +665,7 @@ fn close_views(car: &str, obj: &[u8], color: &[u8], normal: &[u8]) {
         let mut target = Offscreen::new(&gfx, (1250, 1000));
         target.clear(Vec4::new(0.18, 0.18, 0.18, 1.0));
         target.render(&camera, &scene.bake());
-        if name.ends_with("arch-wheel") {
+        if name.ends_with("-wheel") {
             target.render(&camera, &wheel_scene);
         }
         let rendered = pixels(&mut target);
@@ -902,6 +1002,149 @@ fn asset_parts(bytes: &[u8]) -> Vec<tobj::Model> {
     )
     .unwrap()
     .0
+}
+
+#[test]
+fn logan_rear_glass_normals_are_continuous_across_the_center() {
+    use glam::{Vec2, Vec3};
+    use wgame::image::{Image, ImageBase, ImageRead};
+    let parts = asset_parts(include_bytes!("../../assets/logan/model.obj"));
+    let mesh = &parts[0].mesh;
+    let image = Image::decode_auto(include_bytes!("../../assets/logan/normal.png")).unwrap();
+    let sample = |x, y| {
+        let mut nearest = None;
+        for tri in mesh.indices.as_chunks::<3>().0 {
+            let p =
+                tri.map(|i| Vec3::from_slice(&mesh.positions[3 * i as usize..3 * i as usize + 3]));
+            let [a, b, c] = p.map(|v| Vec2::new(v.x, v.y));
+            let det = (b - a).perp_dot(c - a);
+            if det.abs() < 1e-8 {
+                continue;
+            }
+            let q = Vec2::new(x, y) - a;
+            let u = q.perp_dot(c - a) / det;
+            let v = (b - a).perp_dot(q) / det;
+            if u < 0. || v < 0. || u + v > 1. {
+                continue;
+            }
+            let weights = [1. - u - v, u, v];
+            let z = (0..3).map(|i| weights[i] * p[i].z).sum::<f32>();
+            let uv = (0..3)
+                .map(|i| {
+                    let j = tri[i] as usize * 2;
+                    Vec2::from_slice(&mesh.texcoords[j..j + 2]) * weights[i]
+                })
+                .sum::<Vec2>();
+            if nearest.is_none_or(|(height, _)| z > height) {
+                nearest = Some((z, uv));
+            }
+        }
+        let (z, uv) = nearest.expect("rear glass missing");
+        assert!(z > 0.6);
+        let size = image.size();
+        let n = image.data()[((uv.y * size.height as f32) as u32 * size.width
+            + (uv.x * size.width as f32) as u32) as usize];
+        (Vec3::new(n.r.to_f32(), n.g.to_f32(), n.b.to_f32()) * 2. - Vec3::ONE).normalize()
+    };
+    for y in [-1.25, -1.4, -1.55] {
+        let left = sample(-0.005, y);
+        let right = sample(0.005, y);
+        assert!(
+            left.distance(right) < 0.02,
+            "rear glass normal seam at {y}: {left:?}, {right:?}"
+        );
+        assert!(left.y < -0.4 && left.z > 0.8, "glass lost its source slope");
+    }
+}
+
+#[test]
+fn logan_floor_closures_stay_above_the_bumper_outline() {
+    use glam::Vec3;
+    let parts = asset_parts(include_bytes!("../../assets/logan/model.obj"));
+    let mesh = &parts[0].mesh;
+    // Recess the floor without clipping the visible lower bumper panels.
+    for (sign, z, minimum_extent) in [(1., -0.28, 2.12), (-1., -0.21, 1.98)] {
+        let t = mesh_ray(mesh, Vec3::new(0., sign * 4., z), Vec3::new(0., -sign, 0.))
+            .expect("lower bumper panel missing");
+        assert!(
+            4. - t > minimum_extent,
+            "lower bumper clipped on side {sign}"
+        );
+    }
+    for p in mesh.positions.as_chunks::<3>().0 {
+        if p[1] < -1.94 {
+            assert!(p[2] > -0.251, "rear closure hangs below bumper: {p:?}");
+        }
+        if p[1] > 1.94 {
+            assert!(p[2] > -0.310, "front closure hangs below bumper: {p:?}");
+        }
+    }
+    for x in [-0.5, 0., 0.5] {
+        for y in [-1.9, -1.8, 0., 1.9] {
+            let t = mesh_ray(mesh, Vec3::new(x, y, -1.), Vec3::Z)
+                .expect("underside must remain closed");
+            assert!((0.79..0.81).contains(&t), "floor misplaced at {x},{y}: {t}");
+        }
+    }
+}
+
+#[test]
+fn logan_rear_apron_has_a_smooth_symmetric_lower_rim() {
+    let parts = asset_parts(include_bytes!("../../assets/logan/model.obj"));
+    let mesh = &parts[0].mesh;
+    let mut rim = std::collections::BTreeMap::new();
+    for (i, uv) in mesh.texcoords.as_chunks::<2>().0.iter().enumerate() {
+        if (uv[1] - 0.985).abs() < 1e-6 && (0.83499..=0.98501).contains(&uv[0]) {
+            rim.insert(
+                (uv[0] * 1e6).round() as i32,
+                &mesh.positions[3 * i..3 * i + 3],
+            );
+        }
+    }
+    let points: Vec<_> = rim.values().collect();
+    assert_eq!(points.len(), 33);
+    for (p, opposite) in points.iter().zip(points.iter().rev()) {
+        assert!(
+            (-0.251..=-0.243).contains(&p[2]),
+            "notched rear apron: {p:?}"
+        );
+        assert!((p[0] + opposite[0]).abs() < 0.003);
+        assert!((p[1] - opposite[1]).abs() < 0.003);
+        assert!((p[2] - opposite[2]).abs() < 0.001);
+    }
+    for pair in points.windows(2) {
+        assert!((pair[0][2] - pair[1][2]).abs() < 0.002, "abrupt apron step");
+    }
+}
+
+#[test]
+fn logan_bumper_corners_follow_source_hems_without_hanging_tabs() {
+    use glam::Vec3;
+    let parts = asset_parts(include_bytes!("../../assets/logan/model.obj"));
+    let mesh = &parts[0].mesh;
+    // Source bumper cross-sections, behind/in front of the wheel openings.
+    // Check both absence below the hem and retained outer skin above it.
+    for (y, hem_z, width) in [
+        (-1.74, -0.252, 0.900),
+        (-1.80, -0.250, 0.890),
+        (-1.90, -0.247, 0.860),
+        (1.89, -0.309, 0.923),
+        (1.94, -0.308, 0.911),
+    ] {
+        for side in [-1., 1.] {
+            let direction = Vec3::new(-side, 0., 0.);
+            assert!(
+                mesh_ray(mesh, Vec3::new(side * 2., y, hem_z - 0.012), direction).is_none(),
+                "hanging bumper tab at {side},{y}"
+            );
+            let t = mesh_ray(mesh, Vec3::new(side * 2., y, hem_z + 0.015), direction)
+                .expect("bumper corner was removed instead of fitted");
+            assert!(
+                (2. - t - width).abs() < 0.04,
+                "bumper hem left the source skin at {side},{y}"
+            );
+        }
+    }
 }
 
 fn mesh_ray(mesh: &tobj::Mesh, origin: glam::Vec3, direction: glam::Vec3) -> Option<f32> {
