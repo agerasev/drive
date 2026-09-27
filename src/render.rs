@@ -6,14 +6,14 @@ use wgame::{
     Library, Result,
     gfx::types::{Color, color},
     gfx::{BakedScene, Scene},
-    image::Image,
+    image::{Atlas, Image, ImageBase, ImageWriteMut},
     prelude::*,
     shapes::{Mesh, PolygonFill, shader::Vertex},
     shapes3d::{
-        LightParameters, Lighting, LitMaterial, LitMesh, MaterialSettings, NormalY,
+        LightParameters, Lighting, LitMaterial, LitMesh, MaterialSettings, NormalSpace, NormalY,
         recalculate_normals,
     },
-    texture::{Texture, TextureSettings},
+    texture::{Texture, TextureAtlas, TextureSettings},
 };
 
 pub struct Assets {
@@ -24,13 +24,59 @@ pub struct Assets {
     pub terrain: BakedScene,
 }
 fn texture(lib: &Library, bytes: &[u8]) -> Result<Texture> {
-    Ok(lib.make_texture(&Image::decode_auto(bytes)?, TextureSettings::linear()))
+    let image = Image::decode_auto(bytes)?;
+    let size = image.size();
+    if size.width >= 2048 || size.height >= 2048 {
+        // Atlas padding makes a 4K map exceed 4096. Keep large maps in exact-sized
+        // allocations so packing several cannot grow the shared atlas to 16K.
+        let atlas = TextureAtlas::new(
+            lib.texturing().state(),
+            Atlas::with_size((size.width + 2, size.height + 2).into()),
+            wgpu::TextureFormat::Rgba16Float,
+        );
+        let texture = atlas.allocate(size, TextureSettings::linear());
+        texture.update(|mut dst| dst.copy_from(&image));
+        Ok(texture)
+    } else {
+        Ok(lib.make_texture(&image, TextureSettings::linear()))
+    }
+}
+fn body_material(
+    lighting: &Lighting,
+    color: &Texture,
+    normal: &Texture,
+    normal_space: NormalSpace,
+) -> Result<LitMaterial> {
+    anyhow::ensure!(
+        color.size() == normal.size(),
+        "body color and normal map dimensions differ"
+    );
+    lighting.material(
+        Some(normal),
+        MaterialSettings {
+            specular: 0.2,
+            shininess: 48.0,
+            normal_space,
+            // For tangent-space maps, the OBJ exporter flips Blender's V for top-left image sampling.
+            // Its baked +Y normals therefore point against increasing game V.
+            normal_y: NormalY::Negative,
+            ..Default::default()
+        },
+    )
 }
 fn model(
     lib: &Library,
     bytes: &[u8],
     texture: &Texture,
     material: &LitMaterial,
+) -> Result<Vec<LitMesh>> {
+    model_with_materials(lib, bytes, texture, |_| material)
+}
+fn model_with_materials<'a>(
+    lib: &Library,
+    bytes: &[u8],
+    texture: &Texture,
+    material: impl Fn(&str) -> &'a LitMaterial,
 ) -> Result<Vec<LitMesh>> {
     let (models, _) = tobj::load_obj_buf(
         &mut Cursor::new(bytes),
@@ -46,6 +92,7 @@ fn model(
     models
         .into_iter()
         .map(|m| {
+            let material = material(&m.name);
             let mesh = m.mesh;
             anyhow::ensure!(
                 !mesh.positions.is_empty() && mesh.positions.len().is_multiple_of(3),
@@ -89,7 +136,7 @@ fn model(
             } else {
                 recalculate_normals(&mut vertices, &mesh.indices)?;
             }
-            Ok(lib
+            let mesh = lib
                 .shapes()
                 .mesh(Mesh::from_arrays(
                     lib.shapes().state(),
@@ -97,10 +144,44 @@ fn model(
                     Some(&mesh.indices),
                 ))
                 .fill_texture(texture)
-                .with_material(material))
+                .with_material(material);
+            Ok(mesh)
         })
         .collect()
 }
+fn detail_models(
+    lib: &Library,
+    lighting: &Lighting,
+    obj: &[u8],
+    png: &[u8],
+) -> Result<Vec<LitMesh>> {
+    let color = texture(lib, png)?;
+    // Mirrors and windshield retain their own geometry and explicit normals.
+    // Applying the body bake here would project through thin, separate surfaces.
+    let material = lighting.material(
+        None,
+        MaterialSettings {
+            specular: 0.2,
+            shininess: 48.0,
+            ..Default::default()
+        },
+    )?;
+    let matte = lighting.material(
+        None,
+        MaterialSettings {
+            specular: 0.0,
+            ..Default::default()
+        },
+    )?;
+    model_with_materials(lib, obj, &color, |name| {
+        if name == "opaque_underbody" {
+            &matte
+        } else {
+            &material
+        }
+    })
+}
+
 fn wheel_mesh(lib: &Library, texture: &Texture) -> PolygonFill {
     // Both wheel maps have a radial face in the first 256x256 pixels and
     // a 64-pixel tread strip on the right. Keep separate cap/side UV charts.
@@ -130,6 +211,8 @@ impl Assets {
     pub fn new(lib: &Library, terrain: &Terrain) -> Result<Self> {
         let logan = texture(lib, include_bytes!("../assets/logan/color.png"))?;
         let l200 = texture(lib, include_bytes!("../assets/l200/color.png"))?;
+        let logan_normal = texture(lib, include_bytes!("../assets/logan/normal.png"))?;
+        let l200_normal = texture(lib, include_bytes!("../assets/l200/normal.png"))?;
         let wheel = texture(lib, include_bytes!("../assets/wheel/color.png"))?;
         // Decode normal RGB as raw data. The lighting shader only linearizes albedo.
         let wheel_normal = texture(lib, include_bytes!("../assets/wheel/normal.png"))?;
@@ -138,14 +221,8 @@ impl Assets {
             "wheel color and normal map dimensions differ"
         );
         let lighting = Lighting::new(lib.shapes(), lib.texturing(), LightParameters::default())?;
-        let car_material = lighting.material(
-            None,
-            MaterialSettings {
-                specular: 0.2,
-                shininess: 48.0,
-                ..Default::default()
-            },
-        )?;
+        let logan_material = body_material(&lighting, &logan, &logan_normal, NormalSpace::Object)?;
+        let l200_material = body_material(&lighting, &l200, &l200_normal, NormalSpace::Object)?;
         let wheel_material = lighting.material(
             Some(&wheel_normal),
             MaterialSettings {
@@ -175,20 +252,32 @@ impl Assets {
             ),
             TextureSettings::linear(),
         );
-        let cars = [
+        let mut cars = [
             model(
                 lib,
                 include_bytes!("../assets/logan/model.obj"),
                 &logan,
-                &car_material,
+                &logan_material,
             )?,
             model(
                 lib,
                 include_bytes!("../assets/l200/model.obj"),
                 &l200,
-                &car_material,
+                &l200_material,
             )?,
         ];
+        cars[0].extend(detail_models(
+            lib,
+            &lighting,
+            include_bytes!("../assets/logan/details.obj"),
+            include_bytes!("../assets/logan/details.png"),
+        )?);
+        cars[1].extend(detail_models(
+            lib,
+            &lighting,
+            include_bytes!("../assets/l200/details.obj"),
+            include_bytes!("../assets/l200/details.png"),
+        )?);
         let wheel = wheel_mesh(lib, &wheel).with_material(&wheel_material);
         let marker = lib.shapes().sphere(16, 8).fill_color(color::RED);
         let vertices: Vec<_> = terrain

@@ -50,10 +50,14 @@ inertia in the asset configs are not yet simulated. There is no chassis collisio
 Models use wgame's shared textured meshes, scene batching, camera and depth
 attachment. Spheres and cylinders come from its optional `wgame-gfx-3d` crate.
 Ambient and directional light shade the imported car normals and terrain normals.
-Blinn–Phong highlights follow the camera. Wheels use the existing tangent-space
-normal map; car bodies and terrain use their geometry normals. Color textures
-are decoded from sRGB for lighting, while normal-map RGB remains unconverted data.
+Blinn–Phong highlights follow the camera. Both car bodies use object-space normal maps;
+wheels use tangent-space maps. Separate windshields and source mirrors use
+their explicit mesh normals. Terrain uses its geometry normals. Color textures are decoded from
+sRGB for lighting, while normal-map RGB remains unconverted data. Both vehicles
+use opaque windows and omit their interiors.
 The sun and material settings live in `src/render.rs`. Cast shadows are not simulated.
+See [vehicle asset conventions](assets/README.md) for source models, baked maps,
+and export requirements.
 
 ## Checks
 
@@ -67,7 +71,8 @@ cargo test --locked --bin drive -- --ignored
 
 `--smoke` draws twelve frames and exits without capturing the pointer. The CPU
 tests cover contact geometry, suspension, driving/braking and fixed-step timing.
-The ignored GPU test requires an adapter (Mesa lavapipe works), checks both car
-assets and depth across render passes, and can save PPM images to an existing
-directory set in `DRIVE_RENDER_OUTPUT`. Web compilation still needs a browser
+The ignored GPU tests require an adapter (Mesa lavapipe works), check both car
+assets from four angles, body and cargo-bed close-ups, normal mapping and depth
+across render passes. They can save PPM images to an existing directory set in
+`DRIVE_RENDER_OUTPUT`. Web compilation still needs a browser
 check for rendering and input.
