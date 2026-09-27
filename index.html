@@ -13,8 +13,8 @@
   </style>
 
 <script type="module">
-import init, * as bindings from '/drive/drive-6d26fbf8f00039e2.js';
-const wasm = await init({ module_or_path: '/drive/drive-6d26fbf8f00039e2_bg.wasm' });
+import init, * as bindings from '/drive/drive-94bfd9eb56f832a8.js';
+const wasm = await init({ module_or_path: '/drive/drive-94bfd9eb56f832a8_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -23,7 +23,7 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-<link rel="modulepreload" href="/drive/drive-6d26fbf8f00039e2.js" crossorigin="anonymous" integrity="sha384-vOWm38Dc1lCa5ya1Q/O5CR1a2BxbVJoecN/4PRH1KCWVLIwF5ELXsC9ubCpCxPjf"><link rel="preload" href="/drive/drive-6d26fbf8f00039e2_bg.wasm" crossorigin="anonymous" integrity="sha384-ufZbLVZitVvWsBjvgKBks4ceixb4ifrJTCNL6hNnntcNYjGMl7RYFO5hWaJGhGil" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/drive/drive-94bfd9eb56f832a8.js" crossorigin="anonymous" integrity="sha384-CgLcLGOtlMcbt2O+XrVyoXFv5YZWA/C/gLFckEOzqHADcNwb5wNla15ZKWDpJ75O"><link rel="preload" href="/drive/drive-94bfd9eb56f832a8_bg.wasm" crossorigin="anonymous" integrity="sha384-IQ83dfa/Ugso/GVH/2yKykoqrCSPUn7784jx9gn3ngQu1oDtnKx2R5nKLElrET4C" as="fetch" type="application/wasm"></head>
 <body>
   <div id="content"><canvas id="canvas" tabindex="0" aria-label="Drive driving playground"></canvas></div>
   <noscript>Drive requires JavaScript and WebGL2. Enable JavaScript to play.</noscript>
