@@ -1,12 +1,54 @@
+//! Contact-force driving with automatic torque/power limits and traction control.
+//!
+//! Throttle requests effort, not wheel speed. Each driven wheel receives an equal
+//! share of engine capacity, limited by its suspension load and the grip left
+//! after cornering. Excess throttle does not create artificial longitudinal slip.
+//! Lateral slip relaxes over a fixed response time rather than one physics step,
+//! allowing the parallel front wheels to turn without exhausting their grip.
+//! Rolling resistance acts with or without throttle; longitudinal aerodynamic drag
+//! is calibrated from the configured level-ground speed. Reverse has a separate
+//! propulsion limit, and opposite-direction throttle brakes before reversing.
+//!
+//! Wheel spin follows ground motion (or locks under braking); wheel inertia,
+//! burnouts, discrete gears and engine RPM are not simulated. Controls persist
+//! across physics steps until replaced or reset.
+//!
+//! ```
+//! # fn drive(car: &mut drive::vehicle::Vehicle, terrain: &drive::terrain::Terrain) {
+//! car.reset_controls();
+//! car.accelerate(0.5); // Half of the available engine effort.
+//! car.step(terrain, 1.0 / 240.0);
+//! # }
+//! ```
+
 use crate::{
     config::{VehicleConfig, WheelConfig, WheelInstanceConfig},
     terrain::Terrain,
 };
-use glam::{Affine3A, Quat, Vec3};
+use glam::{Affine3A, Mat2, Quat, Vec2, Vec3};
 use phy::{Context, Rk4, Rot2, Rot3, Solver, System, Var, Visitor, angular_to_linear3, torque3};
+
+mod drivetrain;
+use drivetrain::{Drivetrain, ROLL_RESISTANCE};
+
 const GRAVITY: Vec3 = Vec3::new(0.0, 0.0, -9.8);
+// Parallel steering axes cannot both roll without lateral slip in a turn.
+// A finite relaxation time avoids spending all grip on that small mismatch and
+// keeps the lateral response independent of the physics timestep.
+const LATERAL_RELAXATION: f32 = 0.08;
+
+#[derive(Clone, Copy, Default)]
+enum Control {
+    #[default]
+    Coast,
+    Throttle(f32),
+    Brake,
+}
+
 pub struct Vehicle {
     config: VehicleConfig,
+    drivetrain: Drivetrain,
+    control: Control,
 
     pos: Var<Vec3, Rk4>,
     rot: Var<Rot3, Rk4>,
@@ -24,8 +66,6 @@ struct Wheel {
 
     axis: Vec3,
     rot: Var<Rot2, Rk4>,
-    /// Fixed angular speed
-    fixed_asp: Option<f32>,
     /// Visible angular speed
     visible_asp: f32,
 
@@ -39,7 +79,6 @@ impl Wheel {
             config,
             axis: Vec3::X,
             rot: Var::default(),
-            fixed_asp: None,
             visible_asp: 0.0,
             dev: 0.0,
         }
@@ -61,7 +100,6 @@ impl Wheel {
     /// Returns point of contact and normal
     fn contact_terrain(&mut self, map: Affine3A, terrain: &Terrain) -> Option<(Vec3, Vec3)> {
         self.dev = 0.0;
-        self.visible_asp = self.fixed_asp.unwrap_or(0.0);
         terrain
             .intersect_line(
                 map.transform_point3(self.upper_poc()),
@@ -73,17 +111,9 @@ impl Wheel {
             })
     }
 
-    fn add_vel_at_poc(&self, outer_vel: Vec3, normal: Vec3) -> Vec3 {
-        if let Some(asp) = self.fixed_asp {
-            angular_to_linear3(asp * self.axis, -self.common.radius * Vec3::Z)
-        } else {
-            -outer_vel.project_onto_normalized(self.axis.cross(normal).normalize_or_zero())
-        }
-    }
-
-    fn set_visible_asp(&mut self, outer_vel: Vec3) {
-        if let Some(asp) = self.fixed_asp {
-            self.visible_asp = asp;
+    fn set_visible_asp(&mut self, outer_vel: Vec3, braking: bool) {
+        if braking {
+            self.visible_asp = 0.0;
         } else {
             let r = -self.common.radius * Vec3::Z;
             self.visible_asp = outer_vel.cross(r).dot(self.axis) / self.common.radius.powi(2);
@@ -97,50 +127,12 @@ impl Wheel {
 
         (susp.max(0.0) * Vec3::Z).project_onto_normalized(normal)
     }
-
-    /// Returns force applied
-    fn dry_friction(
-        &mut self,
-        normal_reaction: Vec3,
-        first: bool,
-        mut vel_at: Vec3,
-        mut acc_at: Vec3,
-        eff_mass: f32,
-        dt: f32,
-    ) -> Vec3 {
-        if self.fixed_asp.is_none() {
-            let dir = self.axis.cross(normal_reaction).normalize_or_zero();
-            vel_at = vel_at.reject_from_normalized(dir);
-            acc_at = acc_at.reject_from_normalized(dir);
-        }
-        let stiction = -eff_mass * (vel_at / dt + acc_at).reject_from(normal_reaction);
-
-        let force_abs = stiction.length();
-        let force_abs_max = Terrain::DRY_FRICTION * normal_reaction.length();
-
-        if force_abs < force_abs_max {
-            stiction
-        } else if first {
-            stiction * (force_abs_max / force_abs)
-        } else {
-            Vec3::ZERO
-        }
-    }
-
-    const ROLL_FRICTION: f32 = 100.0;
-
-    fn roll_friction(&mut self, normal: Vec3, outer_vel: Vec3) -> Vec3 {
-        if self.fixed_asp.is_none() {
-            -Self::ROLL_FRICTION
-                * outer_vel.project_onto_normalized(self.axis.cross(normal).normalize_or_zero())
-        } else {
-            Vec3::ZERO
-        }
-    }
 }
 impl Vehicle {
     pub fn new(config: VehicleConfig, pos: Vec3, rot: Quat) -> Self {
         Self {
+            drivetrain: Drivetrain::new(&config),
+            control: Control::default(),
             wheels: config
                 .wheels
                 .clone()
@@ -158,21 +150,17 @@ impl Vehicle {
     }
 
     pub fn reset_controls(&mut self) {
+        self.control = Control::Coast;
         for wheel in &mut self.wheels {
-            wheel.fixed_asp = None;
             wheel.axis = Vec3::X;
         }
     }
 
-    /// Vehicle speed (m/s)
-    const SPEED: f32 = 6.0;
-
+    /// Request signed engine effort in [-1, 1]; zero coasts, negative reverses.
+    /// Opposite-direction input brakes until longitudinal speed is below 0.2 m/s.
     pub fn accelerate(&mut self, throttle: f32) {
-        for wheel in &mut self.wheels {
-            if wheel.config.drive {
-                wheel.fixed_asp = Some(-throttle * Self::SPEED / wheel.common.radius);
-            }
-        }
+        assert!(throttle.is_finite());
+        self.control = Control::Throttle(throttle.clamp(-1.0, 1.0));
     }
     pub fn steer(&mut self, angle: f32) {
         // Front wheels
@@ -181,8 +169,18 @@ impl Vehicle {
         }
     }
     pub fn brake(&mut self) {
-        for wheel in &mut self.wheels {
-            wheel.fixed_asp = Some(0.0);
+        self.control = Control::Brake;
+    }
+
+    fn pedals(&self) -> (f32, bool) {
+        match self.control {
+            Control::Coast => (0.0, false),
+            Control::Brake => (0.0, true),
+            Control::Throttle(throttle) => {
+                let speed = self.rot.inverse().transform(*self.vel).y;
+                let braking = throttle != 0.0 && throttle.signum() * speed < -0.2;
+                (if braking { 0.0 } else { throttle }, braking)
+            }
         }
     }
 
@@ -191,6 +189,9 @@ impl Vehicle {
         self.rot.deriv += self.rot.transform(*self.rasp);
 
         self.vel.deriv += GRAVITY;
+        let speed = self.rot.inverse().transform(*self.vel).y;
+        self.vel.deriv += self.rot.transform(Vec3::Y)
+            * (self.drivetrain.air_resistance(speed) / self.config.mass);
 
         let inert = self.config.principal_moments_of_inertia;
         // According to Euler's equation
@@ -200,19 +201,26 @@ impl Vehicle {
     fn interact_with_terrain(&mut self, terrain: &Terrain, dt: f32) {
         let map = Affine3A::from_rotation_translation(Quat::from(*self.rot), *self.pos);
         let irot = self.rot.inverse();
+        let (throttle, braking) = self.pedals();
+        let driven_wheels = self
+            .wheels
+            .iter()
+            .filter(|wheel| wheel.config.drive)
+            .count()
+            .max(1) as f32;
 
         let mut normal_reactions = [None::<Vec3>; 4];
         for (wheel, normal_reaction) in self.wheels.iter_mut().zip(normal_reactions.iter_mut()) {
+            wheel.visible_asp = 0.0;
             if let Some((_poc, normal)) = wheel.contact_terrain(map, terrain) {
                 // Use only local coordinates
                 let normal = irot.transform(normal);
                 let poc = wheel.poc();
 
                 let outer_vel = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
-                wheel.set_visible_asp(outer_vel);
-                let vel_at = outer_vel + wheel.add_vel_at_poc(outer_vel, normal);
+                wheel.set_visible_asp(outer_vel, braking);
 
-                let force = wheel.normal_reaction(normal, vel_at);
+                let force = wheel.normal_reaction(normal, outer_vel);
                 if force.length_squared() <= 1e-12 {
                     continue;
                 }
@@ -223,36 +231,78 @@ impl Vehicle {
             }
         }
 
-        for i in 0..2 {
-            for (wheel, normal_reaction) in self.wheels.iter_mut().zip(normal_reactions) {
-                if let Some(normal_reaction) = normal_reaction {
-                    // Use only local coordinates
-                    let normal = normal_reaction.normalize();
-                    let poc = wheel.poc();
+        // Braking solves coupled contact constraints. Track total force per tire
+        // so repeated corrections cannot exceed its friction circle. Alternating
+        // sweeps reduce wheel-order bias; rolling tires need only one force pass.
+        let mut forces = [Vec3::ZERO; 4];
+        for pass in 0..if braking { 8 } else { 1 } {
+            for index in 0..4 {
+                let index = if pass % 2 == 0 { index } else { 3 - index };
+                let Some(reaction) = normal_reactions[index] else {
+                    continue;
+                };
+                let wheel = &self.wheels[index];
+                let normal = reaction.normalize();
+                let forward = normal.cross(wheel.axis).normalize_or_zero();
+                let lateral = forward.cross(normal);
+                let poc = wheel.poc();
+                let vel_at = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
+                let speed = vel_at.dot(forward);
+                let limit = Terrain::DRY_FRICTION * reaction.length();
 
-                    let outer_vel = irot.transform(*self.vel) + angular_to_linear3(*self.rasp, poc);
-                    let vel_at = outer_vel + wheel.add_vel_at_poc(outer_vel, normal);
-                    let acc_at =
-                        irot.transform(self.vel.deriv) + angular_to_linear3(self.rasp.deriv, poc);
-
-                    let dir = vel_at.reject_from_normalized(normal).normalize_or_zero();
-                    let eff_mass = 1.0
-                        / (1.0 / self.config.mass
-                            + (dir.cross(poc))
-                                .dot(dir.cross(poc) / self.config.principal_moments_of_inertia));
-
-                    let mut force =
-                        wheel.dry_friction(normal_reaction, i == 0, vel_at, acc_at, eff_mass, dt);
-                    if i == 0 {
-                        force += wheel.roll_friction(normal, outer_vel);
-                    }
-
-                    self.vel.deriv += self.rot.transform(force) / self.config.mass;
-                    self.rasp.deriv +=
-                        torque3(poc, force) / self.config.principal_moments_of_inertia;
-                }
+                let force = if braking {
+                    // Solve both tangent directions together; independently
+                    // clamping them can sacrifice braking to a tiny side slip.
+                    let response = self.tangent_inverse_mass(poc, forward, lateral);
+                    let acc = vel_at / dt + self.acceleration_at(poc);
+                    let correction =
+                        -response.inverse() * Vec2::new(acc.dot(forward), acc.dot(lateral));
+                    (forces[index] + forward * correction.x + lateral * correction.y)
+                        .clamp_length_max(limit)
+                } else {
+                    let drive = if wheel.config.drive {
+                        self.drivetrain.force(speed, throttle) / driven_wheels
+                    } else {
+                        0.0
+                    };
+                    let longitudinal = drive
+                        - ROLL_RESISTANCE * reaction.length() * (speed / 0.5).clamp(-1.0, 1.0);
+                    let sideways = -self.effective_mass(poc, lateral) * vel_at.dot(lateral)
+                        / dt.max(LATERAL_RELAXATION);
+                    let sideways = sideways.clamp(-limit, limit);
+                    let traction = (limit * limit - sideways * sideways).max(0.0).sqrt();
+                    lateral * sideways + forward * longitudinal.clamp(-traction, traction)
+                };
+                self.apply_force(poc, force - forces[index]);
+                forces[index] = force;
             }
         }
+    }
+
+    fn apply_force(&mut self, poc: Vec3, force: Vec3) {
+        self.vel.deriv += self.rot.transform(force) / self.config.mass;
+        self.rasp.deriv += torque3(poc, force) / self.config.principal_moments_of_inertia;
+    }
+
+    fn effective_mass(&self, poc: Vec3, dir: Vec3) -> f32 {
+        let arm = poc.cross(dir);
+        1.0 / (1.0 / self.config.mass + arm.dot(arm / self.config.principal_moments_of_inertia))
+    }
+
+    fn tangent_inverse_mass(&self, poc: Vec3, forward: Vec3, lateral: Vec3) -> Mat2 {
+        let front_arm = poc.cross(forward);
+        let side_arm = poc.cross(lateral);
+        let coupling = front_arm.dot(side_arm / self.config.principal_moments_of_inertia);
+        Mat2::from_cols(
+            Vec2::new(1.0 / self.effective_mass(poc, forward), coupling),
+            Vec2::new(coupling, 1.0 / self.effective_mass(poc, lateral)),
+        )
+    }
+
+    fn acceleration_at(&self, poc: Vec3) -> Vec3 {
+        self.rot.inverse().transform(self.vel.deriv)
+            + angular_to_linear3(self.rasp.deriv, poc)
+            + self.rasp.cross(self.rasp.cross(poc))
     }
 
     fn visit_vars<V: Visitor<Rk4>>(&mut self, visitor: &mut V) {

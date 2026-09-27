@@ -47,9 +47,13 @@ as the build script's argument, for example `./scripts/build-web.sh /drive/`.
 
 Physics uses phy's RK4 solver at 240 steps per second, independent of rendering.
 Catch-up is capped at 100 ms per frame. Suspension only pushes away from terrain;
-wheel contact and spin are recomputed at each RK4 stage. The experimental
-fixed wheel-speed drivetrain is retained: engine power/torque limits and wheel
-inertia in the asset configs are not yet simulated. There is no chassis collision.
+wheel contact and spin are recomputed at each RK4 stage. Throttle requests engine
+effort, with torque-limited launches and power-limited acceleration at speed.
+Traction control limits driving force to the grip left after cornering. Opposite
+direction input brakes before reversing; reverse has its own propulsion speed
+limit. Rolling resistance and aerodynamic drag act independently of throttle.
+See the [drivetrain contract](src/vehicle.rs) and [tuning fields](src/config.rs).
+Wheel inertia and chassis collision are not simulated.
 
 Models use wgame's shared textured meshes, scene batching, camera and depth
 attachment. Spheres and cylinders come from its optional `wgame-gfx-3d` crate.

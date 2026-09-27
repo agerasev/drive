@@ -163,7 +163,7 @@ async fn main(window: Window<'_>) -> Result<()> {
         } else if forward {
             car.accelerate(1.0);
         } else if back {
-            car.accelerate(-0.5);
+            car.accelerate(-1.0);
         }
         let steering = i32::from(held(Key::ArrowLeft, 'a')) - i32::from(held(Key::ArrowRight, 'd'));
         car.steer(std::f32::consts::FRAC_PI_6 * steering as f32);

@@ -4,6 +4,8 @@
     "max_power": 56250.0,
     "max_torque": 180.0,
     "max_speed": 60.0,
+    "drive_ratio": 10.0,
+    "max_reverse_speed": 6.0,
     "wheel_common": {
         "radius": 0.35,
         "width": 0.20,
