@@ -11,10 +11,10 @@
        the drawing buffer when this viewport-sized layout changes. */
     canvas { display: block; width: 100% !important; height: 100% !important; outline: none; touch-action: none; }
   </style>
-
+  
 <script type="module">
-import init, * as bindings from '/drive/drive-94bfd9eb56f832a8.js';
-const wasm = await init({ module_or_path: '/drive/drive-94bfd9eb56f832a8_bg.wasm' });
+import init, * as bindings from '/drive/drive-4d7350a85dd30fab.js';
+const wasm = await init({ module_or_path: '/drive/drive-4d7350a85dd30fab_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -23,7 +23,7 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-<link rel="modulepreload" href="/drive/drive-94bfd9eb56f832a8.js" crossorigin="anonymous" integrity="sha384-CgLcLGOtlMcbt2O+XrVyoXFv5YZWA/C/gLFckEOzqHADcNwb5wNla15ZKWDpJ75O"><link rel="preload" href="/drive/drive-94bfd9eb56f832a8_bg.wasm" crossorigin="anonymous" integrity="sha384-IQ83dfa/Ugso/GVH/2yKykoqrCSPUn7784jx9gn3ngQu1oDtnKx2R5nKLElrET4C" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/drive/drive-4d7350a85dd30fab.js" crossorigin="anonymous" integrity="sha384-3ldo1eMkSjN5O7RI1lehfI+flMDci9KeUSnz6XHKXt+MT9N3tKCQNunlwWajP+pX"><link rel="preload" href="/drive/drive-4d7350a85dd30fab_bg.wasm" crossorigin="anonymous" integrity="sha384-1hRtPJa3zL7C7zbXCVW/Tf3w63Uj9SXyKAV+gEIFNZWZRNCRIa05PUk7b3wbJELt" as="fetch" type="application/wasm"></head>
 <body>
   <div id="content"><canvas id="canvas" tabindex="0" aria-label="Drive driving playground"></canvas></div>
   <noscript>Drive requires JavaScript and WebGL2. Enable JavaScript to play.</noscript>

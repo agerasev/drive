@@ -1,6 +1,13 @@
 {
-  "source_commit": "b6f840c828221d0f34aef5b49530670cfae9b3f6",
+  "source_commit": "7c063eedc4e731c20ab37c59b64f4a5c2a914d51",
   "source_branch": "main",
   "public_url": "/drive/",
+  "library_versions": {
+    "phy": "0.2.0",
+    "wgame": "0.1.0",
+    "wgame-egui": "0.1.0"
+  },
+  "built_at": "2026-09-29T09:18:34.147743+00:00",
+  "build_command": "./scripts/build-web.sh /drive/",
   "previews": "/drive/previews/"
 }
