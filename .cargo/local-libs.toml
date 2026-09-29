@@ -1,0 +1,6 @@
+# Opt in with: cargo run --config .cargo/local-libs.toml --release
+# Paths are relative to this repository, not to the .cargo directory.
+[patch.crates-io]
+wgame = { path = "../wgame/wgame" }
+wgame-egui = { path = "../wgame/wgame-egui" }
+phy = { path = "../phy" }

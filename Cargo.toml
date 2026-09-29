@@ -10,13 +10,13 @@ desktop = ["wgame/desktop", "wgame-egui/desktop"]
 web = ["wgame/web", "wgame-egui/web"]
 
 [dependencies]
-wgame-egui = { path = "wgame/wgame-egui", default-features = false }
-wgame = { path = "wgame/wgame", default-features = false, features = ["3d", "image"] }
+wgame-egui = { version = "0.1.0", default-features = false }
+wgame = { version = "0.1.0", default-features = false, features = ["3d", "image"] }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 rand = { version = "0.10.2", default-features = false, features = ["alloc"] }
 tobj = { version = "4.0.3", default-features = false }
 anyhow = "1.0.104"
-phy = { path = "phy" }
+phy = "0.2.0"
 glam = { version = "0.33.7", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

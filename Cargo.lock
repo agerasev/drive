@@ -2192,6 +2192,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "phy"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bcf01f40c779d520ead6b359fae29be5750a8efdf6976b0a9814d45bda02d7f"
 dependencies = [
  "glam",
  "libm",
@@ -3356,6 +3358,8 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 [[package]]
 name = "wgame"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90ddb92edd8f8da9f71c57ba946a1f8dd2d09744e7e56682adf38e447149a73d"
 dependencies = [
  "anyhow",
  "futures",
@@ -3379,6 +3383,8 @@ dependencies = [
 [[package]]
 name = "wgame-app"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617ba921db02fecdd8b4f21f1820ffc1b19f5094ce665144151ef6edb8a10f26"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
@@ -3397,6 +3403,8 @@ dependencies = [
 [[package]]
 name = "wgame-app-input"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2de488e2fe33b7a55f307a9c2ef14a2601caa4f272c3fdd082400efeddaed49c"
 dependencies = [
  "futures",
  "log",
@@ -3406,6 +3414,8 @@ dependencies = [
 [[package]]
 name = "wgame-egui"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0320296a6d5db827454d3f83ee1c51cb515c54859bcead5196d2045fe34a2567"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -3420,6 +3430,8 @@ dependencies = [
 [[package]]
 name = "wgame-fs"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "774ee78c615522ab6a06c08a3d13bf1a158bf7625d3e34390af4a6717776fc81"
 dependencies = [
  "anyhow",
  "async-fs",
@@ -3433,6 +3445,8 @@ dependencies = [
 [[package]]
 name = "wgame-gfx"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fa24f24353ddfcf54fc1487f88f6485c1a4eec9aa3f75176a8de22d19f5c0e2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3448,6 +3462,8 @@ dependencies = [
 [[package]]
 name = "wgame-gfx-3d"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a63621c78dfdbb3580690aa868a80f7c9e9b5a84783e46337abb227d16969483"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3464,6 +3480,8 @@ dependencies = [
 [[package]]
 name = "wgame-gfx-shapes"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c473af38f6d3e4a16287ee7d454f1779f828c23c06b04ea97f4537f1df54ad4e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3485,6 +3503,8 @@ dependencies = [
 [[package]]
 name = "wgame-gfx-texture"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d550953e21712467a3ced7a59114e9268b7ff766e982b0606c229c2a5a3866"
 dependencies = [
  "bytemuck",
  "euclid",
@@ -3507,6 +3527,8 @@ dependencies = [
 [[package]]
 name = "wgame-image"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f53ff7dc8279a1ed01959a771c5a8745281fdbef202187d5e9351ad53afaa132"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3522,6 +3544,8 @@ dependencies = [
 [[package]]
 name = "wgame-input"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e2a4f528164badb4120645a5d871c5973bb8408d923e15a0a26443d0580be80"
 dependencies = [
  "glam",
 ]
@@ -3529,6 +3553,8 @@ dependencies = [
 [[package]]
 name = "wgame-macros"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02a1619d91d77437237e04a687f8f94b891da29ce833504d3d7577dfa88c2e73"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3538,6 +3564,8 @@ dependencies = [
 [[package]]
 name = "wgame-shader"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed7daff7bd6f9dc450500597a8b7e4921d3971b283b11663cb7f44eca2e07c1e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3555,6 +3583,8 @@ dependencies = [
 [[package]]
 name = "wgame-shader-macros"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83f5e554d29b584ee472bac530c274a7b386e608eeacc94025ad54835bf5f217"
 dependencies = [
  "proc-macro2",
  "quote",
